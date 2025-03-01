@@ -1,18 +1,15 @@
-[tool.poetry]
-name = "comfyui-human-parts"
-version = "0.1.0"
-description = "ComfyUI node that segments human parts"
-authors = ["Patrice Ferlet <metal3d@gmail.com>"]
-license = "Apache-2.0"
-readme = "README.md"
+[project]
+name = "comfyui_human_parts"
+description = "Detect human parts using the DeepLabV3+ ResNet50 model from Keras-io. You can extract hair, arms, legs, and other parts with ease and with small memory usage."
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = ["onnxruntime", "numpy", "Pillow"]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-requests = "^2.32.3"
-onnxruntime = "^1.20.1"
-pillow = "^11.1.0"
+[project.urls]
+Repository = "https://github.com/metal3d/ComfyUI_Human_Parts"
+#  Used by Comfy Registry https://comfyregistry.org
 
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.comfy]
+PublisherId = "metal3d"
+DisplayName = "ComfyUI_Human_Parts"
+Icon = ""

@@ -1,9 +1,9 @@
-from typing import Tuple
+from typing import Dict, Tuple
 
 import onnxruntime as ort
 import torch
 
-from .detector.human_parts import get_mask
+from .detector.human_parts import get_mask, labels
 from .utils import model_path
 
 
@@ -24,7 +24,9 @@ class HumanParts:
 
     @classmethod
     def INPUT_TYPES(cls):
-        def _bool_widget(is_enabled=False, tooltip: str | None = None):
+        def _bool_widget(
+            is_enabled=False, tooltip: str | None = None
+        ) -> Tuple[str, dict]:
             """Helper function to create a boolean widget"""
             return (
                 "BOOLEAN",
@@ -36,72 +38,17 @@ class HumanParts:
                 },
             )
 
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "background": _bool_widget(  # 0
-                    tooltip="Background, excluding human parts, invert this mask to get the human parts",
-                ),
-                "hat": _bool_widget(  # 1
-                    tooltip="Hat, cap, et.",
-                ),
-                "hair": _bool_widget(  # x2
-                    tooltip="Hair, including beard, mustache, etc.",
-                ),
-                "gloves": _bool_widget(  # 3
-                    tooltip="Gloves, mittens, etc.",
-                ),
-                "glasses": _bool_widget(  # 4
-                    tooltip="Glasses, sunglasses, etc. Eyes can be included"
-                ),
-                "top-clothes": _bool_widget(  # 5
-                    tooltip="Shirt, T-shirt, etc.",
-                ),
-                "dress": _bool_widget(  # 6
-                    tooltip="Dress, skirt, etc.",
-                ),
-                "coat": _bool_widget(  # 7
-                    tooltip="Coat, jacket, etc.",
-                ),
-                "socks": _bool_widget(  # uint8
-                    tooltip="Socks",
-                ),
-                "bottom-clothes": _bool_widget(  # 9
-                    tooltip="Pants, shorts, etc.",
-                ),
-                "torso-skin": _bool_widget(  # 10
-                    tooltip="Skin of the torso, excluding clothes. Neck can be included"
-                ),
-                "scarf": _bool_widget(  # 11
-                    tooltip="Scarf, bandana, etc.",
-                ),
-                "skirt": _bool_widget(  # 12
-                    tooltip="Skirt",
-                ),
-                "face": _bool_widget(  # 13
-                    is_enabled=True,
-                    tooltip="Face, including eyes, mouth, etc.",
-                ),
-                "left-arm": _bool_widget(  # 14
-                    tooltip="Left arm, excluding clothes, hand can be included"
-                ),
-                "right-arm": _bool_widget(  # 15
-                    tooltip="Right arm, excluding clothes, hand can be included"
-                ),
-                "left-leg": _bool_widget(  # 16
-                    tooltip="Left leg, excluding clothes, foot can be included"
-                ),
-                "right-leg": _bool_widget(  # 17
-                    tooltip="Right leg, excluding clothes, foot can be included"
-                ),
-                "left-foot": _bool_widget(  # 18
-                    tooltip="Left foot, excluding shoes",
-                ),
-                "right-foot": _bool_widget(  # 19
-                    tooltip="Right foot, excluding shoes",
-                ),
-            }
+        # automate the creation of the inputs using the known labels
+        entries: Dict[str, tuple] = {
+            segment[0]: _bool_widget(False, f"{segment[1]}")
+            for segment in labels.values()
+            if segment[0] != ""
         }
+
+        inputs = {"required": {}, "optional": {}}
+        inputs["required"].update(entries)
+
+        return inputs
 
     def get_mask(self, image: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
         """
