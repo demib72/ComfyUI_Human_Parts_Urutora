@@ -8,11 +8,18 @@ from PIL import Image
 # classes used in the model
 classes = {
     "background": 0,
+    "hat": 1,
     "hair": 2,
+    "glove": 3,
     "glasses": 4,
     "top-clothes": 5,
+    "dress": 6,
+    "coat": 7,
+    "socks": 8,
     "bottom-clothes": 9,
     "torso-skin": 10,
+    "scarf": 11,
+    "skirt": 12,
     "face": 13,
     "left-arm": 14,
     "right-arm": 15,
