@@ -3,8 +3,8 @@ from typing import Tuple
 import onnxruntime as ort
 import torch
 
-from .utils import model_path
 from .detector.human_parts import get_mask
+from .utils import model_path
 
 
 class HumanParts:
@@ -20,6 +20,7 @@ class HumanParts:
     RETURN_NAMES = ("mask",)
     FUNCTION = "get_mask"
     CATEGORY = "Metal3d"
+    OUTPU_NODE = True
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -38,44 +39,65 @@ class HumanParts:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "background": _bool_widget(
+                "background": _bool_widget(  # 0
                     tooltip="Background, excluding human parts, invert this mask to get the human parts",
                 ),
-                "face": _bool_widget(
+                "hat": _bool_widget(  # 1
+                    tooltip="Hat, cap, et.",
+                ),
+                "hair": _bool_widget(  # x2
+                    tooltip="Hair, including beard, mustache, etc.",
+                ),
+                "gloves": _bool_widget(  # 3
+                    tooltip="Gloves, mittens, etc.",
+                ),
+                "glasses": _bool_widget(  # 4
+                    tooltip="Glasses, sunglasses, etc. Eyes can be included"
+                ),
+                "top-clothes": _bool_widget(  # 5
+                    tooltip="Shirt, T-shirt, etc.",
+                ),
+                "dress": _bool_widget(  # 6
+                    tooltip="Dress, skirt, etc.",
+                ),
+                "coat": _bool_widget(  # 7
+                    tooltip="Coat, jacket, etc.",
+                ),
+                "socks": _bool_widget(  # uint8
+                    tooltip="Socks",
+                ),
+                "bottom-clothes": _bool_widget(  # 9
+                    tooltip="Pants, shorts, etc.",
+                ),
+                "torso-skin": _bool_widget(  # 10
+                    tooltip="Skin of the torso, excluding clothes. Neck can be included"
+                ),
+                "scarf": _bool_widget(  # 11
+                    tooltip="Scarf, bandana, etc.",
+                ),
+                "skirt": _bool_widget(  # 12
+                    tooltip="Skirt",
+                ),
+                "face": _bool_widget(  # 13
                     is_enabled=True,
                     tooltip="Face, including eyes, mouth, etc.",
                 ),
-                "hair": _bool_widget(
-                    tooltip="Hair, including beard, mustache, etc.",
-                ),
-                "glasses": _bool_widget(
-                    tooltip="Glasses, sunglasses, etc. Eyes can be included"
-                ),
-                "top-clothes": _bool_widget(
-                    tooltip="Shirt, T-shirt, etc.",
-                ),
-                "bottom-clothes": _bool_widget(
-                    tooltip="Pants, shorts, etc.",
-                ),
-                "torso-skin": _bool_widget(
-                    tooltip="Skin of the torso, excluding clothes. Neck can be included"
-                ),
-                "left-arm": _bool_widget(
+                "left-arm": _bool_widget(  # 14
                     tooltip="Left arm, excluding clothes, hand can be included"
                 ),
-                "right-arm": _bool_widget(
+                "right-arm": _bool_widget(  # 15
                     tooltip="Right arm, excluding clothes, hand can be included"
                 ),
-                "left-leg": _bool_widget(
+                "left-leg": _bool_widget(  # 16
                     tooltip="Left leg, excluding clothes, foot can be included"
                 ),
-                "right-leg": _bool_widget(
+                "right-leg": _bool_widget(  # 17
                     tooltip="Right leg, excluding clothes, foot can be included"
                 ),
-                "left-foot": _bool_widget(
+                "left-foot": _bool_widget(  # 18
                     tooltip="Left foot, excluding shoes",
                 ),
-                "right-foot": _bool_widget(
+                "right-foot": _bool_widget(  # 19
                     tooltip="Right foot, excluding shoes",
                 ),
             }

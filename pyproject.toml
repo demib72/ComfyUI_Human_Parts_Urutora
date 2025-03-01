@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "comfyui-human-parts"
+version = "0.1.0"
+description = "ComfyUI node that segments human parts"
+authors = ["Patrice Ferlet <metal3d@gmail.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+requests = "^2.32.3"
+onnxruntime = "^1.20.1"
+pillow = "^11.1.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
