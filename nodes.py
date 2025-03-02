@@ -45,7 +45,18 @@ class HumanParts:
             if segment[0] != ""
         }
 
-        inputs = {"required": {}, "optional": {}}
+        inputs = {
+            "required": {
+                "image": (
+                    "IMAGE",
+                    {
+                        "label": "Image",
+                        "tooltip": "The image in which to detect human parts",
+                    },
+                )
+            },
+            "optional": {},
+        }
         inputs["required"].update(entries)
 
         return inputs
