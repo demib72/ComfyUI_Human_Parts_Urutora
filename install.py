@@ -4,9 +4,25 @@ import urllib.request
 from tqdm import tqdm
 
 try:
-    from .utils import model_name, model_path, model_url, models_dir_path
+    from .utils import (
+        face_model_name,
+        face_model_path,
+        face_model_url,
+        model_name,
+        model_path,
+        model_url,
+        models_dir_path,
+    )
 except ImportError:
-    from utils import model_name, model_path, model_url, models_dir_path
+    from utils import (
+        face_model_name,
+        face_model_path,
+        face_model_url,
+        model_name,
+        model_path,
+        model_url,
+        models_dir_path,
+    )
 
 
 def download(url, path, name):
@@ -28,8 +44,11 @@ def download(url, path, name):
         )
 
 
-if not os.path.exists(models_dir_path):
-    os.makedirs(models_dir_path)
+os.makedirs(models_dir_path, exist_ok=True)
+print(f"[HumanParts] Using ComfyUI model directory: {models_dir_path}")
 
 if not os.path.exists(model_path):
     download(model_url, model_path, model_name)
+
+if not os.path.exists(face_model_path):
+    download(face_model_url, face_model_path, face_model_name)

@@ -12,6 +12,7 @@ import torch
 from comfy_api.latest import io
 from PIL import Image
 
+from .detector.face_parsing import FACE_PARSING_CLASSES, segment_face_parts
 from .detector.matting import (
     VITMATTE_REPOSITORIES,
     generate_vitmatte,
@@ -30,7 +31,7 @@ from .onnx_lifecycle import (
     lifecycle_execution_providers,
     load_session as _load_session,
 )
-from .utils import model_path
+from .utils import face_model_path, model_path
 
 
 ULTRA_CLASSES = {
@@ -181,6 +182,7 @@ def _segment_parts(
     image: Image.Image,
     model: ort.InferenceSession,
     selections: dict[str, bool],
+    face_model: ort.InferenceSession | None = None,
 ) -> torch.Tensor:
     original_size = image.size
     resized = image.convert("RGB").resize((512, 512), Image.Resampling.BILINEAR)
@@ -202,13 +204,31 @@ def _segment_parts(
     else:
         mask = np.zeros_like(class_map, dtype=np.uint8)
 
+    parsed_eye_mask: np.ndarray | None = None
     for part_name in ULTRA_ANATOMICAL_PARTS:
         if selections.get(part_name, False):
-            mask[_anatomical_mask(class_map, part_name)] = 255
+            if part_name == "eyes" and face_model is not None:
+                parsed_eye_mask = segment_face_parts(
+                    image,
+                    class_map,
+                    ULTRA_CLASSES["face"],
+                    face_model,
+                    (
+                        FACE_PARSING_CLASSES["left_eye"],
+                        FACE_PARSING_CLASSES["right_eye"],
+                    ),
+                )
+            else:
+                mask[_anatomical_mask(class_map, part_name)] = 255
 
     mask_image = Image.fromarray(mask, mode="L").resize(
         original_size, Image.Resampling.NEAREST
     )
+    if parsed_eye_mask is not None:
+        combined = np.maximum(
+            np.asarray(mask_image, dtype=np.uint8), parsed_eye_mask
+        )
+        mask_image = Image.fromarray(combined, mode="L")
     return pil_to_mask(mask_image)
 
 
@@ -297,7 +317,8 @@ class HumanPartsUltra(io.ComfyNode):
         breasts: bool = False,
         groin: bool = False,
     ):
-        model = _load_session(model_path, _execution_providers())
+        providers = _execution_providers()
+        model = _load_session(model_path, providers)
         selections = {
             "face": face,
             "hair": hair,
@@ -316,15 +337,35 @@ class HumanPartsUltra(io.ComfyNode):
             "groin": groin,
         }
 
+        face_model = None
+        if eyes:
+            try:
+                face_model = _load_session(face_model_path, providers)
+            except FileNotFoundError:
+                print(
+                    "[HumanPartsUltra] Face-parsing model is not installed; "
+                    "falling back to the legacy eye estimate. Run install.py "
+                    "to enable native eye segmentation."
+                )
+
         output_images = []
         output_masks = []
         for image_item in image:
             original = tensor_to_pil(image_item).convert("RGB")
-            mask = _segment_parts(original, model, selections)
+            mask = _segment_parts(original, model, selections, face_model)
 
             if process_detail:
                 detail_range = detail_erode + detail_dilate
                 image_batch = image_item.unsqueeze(0)
+                # Small facial masks are especially vulnerable to a matting
+                # model introducing confident alpha elsewhere in the image.
+                # Retain the trimap support so refinement can improve edges but
+                # cannot create disconnected anatomy far from the seed mask.
+                refinement_trimap = (
+                    generate_vitmatte_trimap(mask, detail_erode, detail_dilate)
+                    if eyes
+                    else None
+                )
                 if detail_method == "GuidedFilter":
                     mask = guided_filter_alpha(
                         image_batch, mask, detail_range // 6 + 1
@@ -339,8 +380,11 @@ class HumanPartsUltra(io.ComfyNode):
                         white_point,
                     )
                 else:
-                    trimap = generate_vitmatte_trimap(
-                        mask, detail_erode, detail_dilate
+                    trimap = (
+                        refinement_trimap
+                        or generate_vitmatte_trimap(
+                            mask, detail_erode, detail_dilate
+                        )
                     )
                     matte = generate_vitmatte(
                         original,
@@ -352,6 +396,9 @@ class HumanPartsUltra(io.ComfyNode):
                     mask = histogram_remap(
                         pil_to_mask(matte), black_point, white_point
                     )
+                if refinement_trimap is not None:
+                    support = pil_to_mask(refinement_trimap) > 0
+                    mask = torch.where(support, mask, torch.zeros_like(mask))
 
             mask = mask.float().clamp(0.0, 1.0)
             mask_image = mask_to_pil(mask)

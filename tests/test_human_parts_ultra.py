@@ -28,6 +28,10 @@ from ComfyUI_Human_Parts import comfy_entrypoint
 from ComfyUI_Human_Parts.nodes import HumanParts
 from ComfyUI_Human_Parts.detector.human_parts import get_mask
 from ComfyUI_Human_Parts.detector import matting
+from ComfyUI_Human_Parts.detector.face_parsing import (
+    FACE_PARSING_CLASSES,
+    segment_face_parts,
+)
 from ComfyUI_Human_Parts.nodes_ultra import (
     ULTRA_ANATOMICAL_PARTS,
     ULTRA_CLASSES,
@@ -38,6 +42,7 @@ from ComfyUI_Human_Parts.nodes_ultra import (
     _load_session,
     _segment_parts,
 )
+from ComfyUI_Human_Parts.utils import _fallback_models_dir
 
 
 class GoldenSession:
@@ -69,9 +74,51 @@ class RecordingSession(GoldenSession):
         return super().run(output_names, inputs)
 
 
+class FaceParsingSession:
+    def __init__(self, class_map: np.ndarray):
+        self.class_map = class_map
+        self.inputs = []
+
+    def get_inputs(self):
+        return [SimpleNamespace(name="input")]
+
+    def get_outputs(self):
+        return [SimpleNamespace(name="output")]
+
+    def run(self, output_names, inputs):
+        self.inputs.append(next(iter(inputs.values())))
+        height, width = self.class_map.shape
+        logits = np.zeros((1, 19, height, width), dtype=np.float32)
+        for class_index in range(19):
+            logits[0, class_index][self.class_map == class_index] = 1.0
+        return [logits]
+
+
 def _load_golden_fixture() -> dict:
     with FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
         return json.load(fixture_file)
+
+
+class ModelDirectoryDiscoveryTests(unittest.TestCase):
+    def test_checkout_beside_comfyui_uses_sibling_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin = root / "ComfyUI_Human_Parts"
+            models = root / "ComfyUI" / "models"
+            plugin.mkdir()
+            models.mkdir(parents=True)
+
+            self.assertEqual(_fallback_models_dir(plugin), str(models))
+
+    def test_custom_nodes_install_uses_comfyui_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "ComfyUI"
+            plugin = root / "custom_nodes" / "ComfyUI_Human_Parts"
+            models = root / "models"
+            plugin.mkdir(parents=True)
+            models.mkdir()
+
+            self.assertEqual(_fallback_models_dir(plugin), str(models))
 
 
 def _node_arguments(image: torch.Tensor, **overrides) -> dict:
@@ -244,6 +291,54 @@ class HumanPartsUltraGoldenTests(unittest.TestCase):
                     np.isin(class_map[selected], list(allowed_classes[part_name])).all()
                 )
 
+    def test_eye_selection_uses_native_face_parser_classes_when_available(self):
+        coarse_map = np.zeros((8, 8), dtype=np.int64)
+        coarse_map[2:6, 2:6] = ULTRA_CLASSES["face"]
+        face_map = np.zeros((8, 8), dtype=np.int64)
+        face_map[3, 2:4] = FACE_PARSING_CLASSES["left_eye"]
+        face_map[3, 5:7] = FACE_PARSING_CLASSES["right_eye"]
+        coarse_session = GoldenSession(coarse_map)
+        face_session = FaceParsingSession(face_map)
+        image = Image.new("RGB", (80, 80), "white")
+
+        mask = _segment_parts(
+            image,
+            coarse_session,
+            {"eyes": True},
+            face_session,
+        )
+
+        self.assertGreater(mask.sum().item(), 0)
+        self.assertEqual(face_session.inputs[0].shape, (1, 3, 512, 512))
+        self.assertEqual(face_session.inputs[0].dtype, np.float32)
+
+
+class FaceParsingTests(unittest.TestCase):
+    def test_cci_hp_face_components_are_parsed_as_independent_crops(self):
+        coarse_map = np.zeros((20, 20), dtype=np.int64)
+        coarse_map[2:7, 2:7] = ULTRA_CLASSES["face"]
+        coarse_map[12:18, 13:19] = ULTRA_CLASSES["face"]
+        face_map = np.zeros((16, 16), dtype=np.int64)
+        face_map[7:9, 4:7] = FACE_PARSING_CLASSES["left_eye"]
+        face_map[7:9, 10:13] = FACE_PARSING_CLASSES["right_eye"]
+        session = FaceParsingSession(face_map)
+
+        result = segment_face_parts(
+            Image.new("RGB", (200, 100), "white"),
+            coarse_map,
+            ULTRA_CLASSES["face"],
+            session,
+            (
+                FACE_PARSING_CLASSES["left_eye"],
+                FACE_PARSING_CLASSES["right_eye"],
+            ),
+        )
+
+        self.assertEqual(result.shape, (100, 200))
+        self.assertEqual(len(session.inputs), 2)
+        self.assertTrue((result[:, :100] > 0).any())
+        self.assertTrue((result[:, 100:] > 0).any())
+
 
 class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
     EXPECTED_INPUT_ORDER = [
@@ -381,6 +476,39 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
                 **_node_arguments(self.image, face=True, process_detail=True)
             ).result
         guided.assert_called_once()
+
+    def test_eye_refinement_cannot_create_alpha_outside_trimap_support(self):
+        face_map = np.zeros((4, 4), dtype=np.int64)
+        face_map[1, 1] = FACE_PARSING_CLASSES["left_eye"]
+        face_session = FaceParsingSession(face_map)
+        refined = torch.ones((1, 4, 4), dtype=torch.float32)
+        trimap = Image.fromarray(
+            np.asarray(
+                [[0, 0, 0, 0], [0, 128, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=np.uint8,
+            ),
+            mode="L",
+        )
+        with (
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra._load_session",
+                side_effect=[self.session, face_session],
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.guided_filter_alpha",
+                return_value=refined,
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.generate_vitmatte_trimap",
+                return_value=trimap,
+            ),
+        ):
+            _, mask = HumanPartsUltra.execute(
+                **_node_arguments(self.image, eyes=True, process_detail=True)
+            ).result
+
+        self.assertEqual(mask.sum().item(), 1.0)
+        self.assertEqual(mask[0, 1, 1].item(), 1.0)
         self.assertEqual(mask.shape, (1, 4, 4))
 
     def test_pymatting_refinement(self):

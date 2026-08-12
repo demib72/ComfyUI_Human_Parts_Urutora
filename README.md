@@ -92,15 +92,18 @@ In addition to the ONNX human-parts segmentation, Human Parts Ultra provides:
 - Optional VITMatte, PyMatting, or Torch-native Guided Filter edge refinement
   without OpenCV contrib/ximgproc.
 - CPU or CUDA selection for VITMatte.
-- Optional `eyes`, `breasts`, and `female groin` masks. Because the bundled CCIHP
-  model has no native classes for these smaller regions, Ultra estimates them
-  within the detected face, torso-skin, and upper-leg regions. They work best
-  on front-facing, unobstructed people; inspect the mask before inpainting.
+- Optional `eyes`, `breasts`, and `female groin` masks. Eyes use a lightweight
+  ResNet-18 BiSeNet face parser with native left/right-eye classes, guided by
+  CCIHP face regions so small faces are parsed at higher resolution. Breast and
+  groin masks remain geometric estimates within detected torso-skin and
+  upper-leg regions. Inspect anatomical masks before inpainting.
 
 VITMatte models are downloaded from Hugging Face into
 `ComfyUI/models/vitmatte` on first use. Select `VITMatte(local)` to prohibit a
 model download and use files already present in that directory. The original
-ONNX segmentation model is still installed with `python install.py`.
+ONNX segmentation models are installed with `python install.py`. Existing
+installations should run it again to download the face parser; if it is absent,
+the node logs a warning and uses the legacy geometric eye estimate.
 
 The port fixes the original Ultra node's left-foot selection bug. ONNX uses an
 explicit `auto` provider policy: it tries advertised TensorRT, CUDA, and CPU

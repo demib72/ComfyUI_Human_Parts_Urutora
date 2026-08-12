@@ -26,3 +26,18 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+yakhyo/face-parsing
+===================
+
+The optional ResNet-18 BiSeNet ONNX checkpoint used for facial-component
+parsing is provided by:
+https://github.com/yakhyo/face-parsing
+
+Copyright (c) 2024 Yakhyokhuja Valikhujaev
+
+The upstream project is distributed under the MIT License. The checkpoint was
+trained on CelebAMask-HQ; that dataset is separately restricted to
+non-commercial research use by its maintainers. Review the applicable upstream
+terms before using or redistributing the checkpoint.

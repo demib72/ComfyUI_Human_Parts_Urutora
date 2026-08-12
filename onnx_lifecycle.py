@@ -70,7 +70,7 @@ def execution_providers(policy: str | None = None) -> tuple[str, ...]:
     return lifecycle_execution_providers(policy)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
 def load_session(path: str, providers: tuple[str, ...]) -> ort.InferenceSession:
     """Load an ONNX model, dropping providers that fail initialization."""
     if not os.path.isfile(path):
