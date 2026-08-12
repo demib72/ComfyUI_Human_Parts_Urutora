@@ -181,6 +181,11 @@ def _segment_parts(
             URUTORA_CLASSES["face"],
             face_model,
             tuple(parsed_classes),
+            skin_class=(
+                FACE_PARSING_CLASSES["skin"]
+                if selections.get("face_skin", False)
+                else None
+            ),
         )
 
     for part_name in URUTORA_ANATOMICAL_PARTS:

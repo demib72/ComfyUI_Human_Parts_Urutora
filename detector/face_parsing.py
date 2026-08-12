@@ -67,7 +67,6 @@ def _square_crop_bounds(
 def _parse_crop(
     crop: Image.Image,
     model: InferenceSession,
-    selected_classes: tuple[int, ...],
 ) -> np.ndarray:
     resized = crop.convert("RGB").resize(_INPUT_SIZE, Image.Resampling.BILINEAR)
     input_array = np.asarray(resized, dtype=np.float32) / 255.0
@@ -82,8 +81,23 @@ def _parse_crop(
             "Unexpected face-parsing ONNX output shape "
             f"{tuple(logits.shape)}; expected [N,19,H,W]."
         )
-    class_map = logits[0].argmax(axis=0)
-    return np.isin(class_map, selected_classes).astype(np.uint8) * 255
+    return logits[0].argmax(axis=0)
+
+
+def _remove_small_components(mask: np.ndarray) -> np.ndarray:
+    """Discard isolated parser specks while retaining the main skin regions."""
+    foreground = (mask > 0).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(foreground, 8)
+    if count <= 1:
+        return np.zeros_like(mask, dtype=np.uint8)
+
+    largest_area = int(stats[1:, cv2.CC_STAT_AREA].max())
+    minimum_area = max(4, int(np.ceil(largest_area * 0.001)))
+    cleaned = np.zeros_like(mask, dtype=np.uint8)
+    for component_index in range(1, count):
+        if int(stats[component_index, cv2.CC_STAT_AREA]) >= minimum_area:
+            cleaned[labels == component_index] = 255
+    return cleaned
 
 
 def segment_face_parts(
@@ -92,16 +106,31 @@ def segment_face_parts(
     coarse_face_class: int,
     model: InferenceSession,
     selected_classes: tuple[int, ...],
+    skin_class: int | None = None,
 ) -> np.ndarray:
-    """Parse selected facial classes on CCIHP-guided face crops."""
+    """Parse selected facial classes on CCIHP-guided face crops.
+
+    When ``skin_class`` is selected, its output is clipped to the coarse face
+    region and tiny disconnected components are removed. Other selected
+    classes, such as eyes, remain untouched.
+    """
     image_width, image_height = image.size
     map_height, map_width = coarse_class_map.shape
     component_bounds = _face_component_bounds(coarse_class_map, coarse_face_class)
 
     # If the coarse parser misses a close-up face, BiSeNet can still attempt the
     # complete image. This also keeps the helper useful with synthetic inputs.
-    if not component_bounds:
+    has_coarse_face = bool(component_bounds)
+    if not has_coarse_face:
         component_bounds = [(0, 0, map_width, map_height)]
+
+    coarse_face_support = np.asarray(
+        Image.fromarray(
+            (coarse_class_map == coarse_face_class).astype(np.uint8) * 255,
+            mode="L",
+        ).resize(image.size, Image.Resampling.NEAREST),
+        dtype=np.uint8,
+    )
 
     result = np.zeros((image_height, image_width), dtype=np.uint8)
     for map_x0, map_y0, map_x1, map_y1 in component_bounds:
@@ -114,11 +143,40 @@ def segment_face_parts(
         x0, y0, x1, y1 = _square_crop_bounds(scaled, image.size)
         if x1 <= x0 or y1 <= y0:
             continue
-        parsed = _parse_crop(image.crop((x0, y0, x1, y1)), model, selected_classes)
-        parsed_image = Image.fromarray(parsed, mode="L").resize(
-            (x1 - x0, y1 - y0), Image.Resampling.NEAREST
-        )
+        parsed_classes = _parse_crop(image.crop((x0, y0, x1, y1)), model)
+        parsed = np.isin(parsed_classes, selected_classes).astype(np.uint8) * 255
+
+        if skin_class is not None and skin_class in selected_classes:
+            other_classes = tuple(
+                class_index
+                for class_index in selected_classes
+                if class_index != skin_class
+            )
+            skin = (parsed_classes == skin_class).astype(np.uint8) * 255
+            skin = np.asarray(
+                Image.fromarray(skin, mode="L").resize(
+                    (x1 - x0, y1 - y0), Image.Resampling.NEAREST
+                ),
+                dtype=np.uint8,
+            ).copy()
+            if has_coarse_face:
+                skin[coarse_face_support[y0:y1, x0:x1] == 0] = 0
+            skin = _remove_small_components(skin)
+
+            parsed = np.isin(parsed_classes, other_classes).astype(np.uint8) * 255
+            parsed_image = Image.fromarray(parsed, mode="L").resize(
+                (x1 - x0, y1 - y0), Image.Resampling.NEAREST
+            )
+            parsed = np.maximum(skin, np.asarray(parsed_image, dtype=np.uint8))
+        else:
+            parsed = np.asarray(
+                Image.fromarray(parsed, mode="L").resize(
+                    (x1 - x0, y1 - y0), Image.Resampling.NEAREST
+                ),
+                dtype=np.uint8,
+            )
+
         result[y0:y1, x0:x1] = np.maximum(
-            result[y0:y1, x0:x1], np.asarray(parsed_image, dtype=np.uint8)
+            result[y0:y1, x0:x1], parsed
         )
     return result

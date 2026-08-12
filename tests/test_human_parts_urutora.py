@@ -334,6 +334,27 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
 
 
 class FaceParsingTests(unittest.TestCase):
+    def test_face_skin_is_clipped_to_coarse_face_and_removes_small_islands(self):
+        coarse_map = np.zeros((100, 100), dtype=np.int64)
+        coarse_map[20:90, 20:80] = URUTORA_CLASSES["face"]
+        face_map = np.zeros((100, 100), dtype=np.int64)
+        face_map[40:80, 40:80] = FACE_PARSING_CLASSES["skin"]
+        face_map[30, 30] = FACE_PARSING_CLASSES["skin"]
+
+        result = segment_face_parts(
+            Image.new("RGB", (100, 100), "white"),
+            coarse_map,
+            URUTORA_CLASSES["face"],
+            FaceParsingSession(face_map),
+            (FACE_PARSING_CLASSES["skin"],),
+            skin_class=FACE_PARSING_CLASSES["skin"],
+        )
+
+        coarse_support = coarse_map == URUTORA_CLASSES["face"]
+        self.assertFalse((result[~coarse_support] > 0).any())
+        self.assertFalse((result[25:38, 25:38] > 0).any())
+        self.assertTrue((result[45:70, 45:70] > 0).any())
+
     def test_cci_hp_face_components_are_parsed_as_independent_crops(self):
         coarse_map = np.zeros((20, 20), dtype=np.int64)
         coarse_map[2:7, 2:7] = URUTORA_CLASSES["face"]
@@ -355,6 +376,26 @@ class FaceParsingTests(unittest.TestCase):
         )
 
         self.assertEqual(result.shape, (100, 200))
+        self.assertEqual(len(session.inputs), 2)
+        self.assertTrue((result[:, :100] > 0).any())
+        self.assertTrue((result[:, 100:] > 0).any())
+
+    def test_face_skin_cleanup_preserves_multiple_detected_faces(self):
+        coarse_map = np.zeros((20, 20), dtype=np.int64)
+        coarse_map[2:7, 2:7] = URUTORA_CLASSES["face"]
+        coarse_map[12:18, 13:19] = URUTORA_CLASSES["face"]
+        face_map = np.full((16, 16), FACE_PARSING_CLASSES["skin"], dtype=np.int64)
+        session = FaceParsingSession(face_map)
+
+        result = segment_face_parts(
+            Image.new("RGB", (200, 100), "white"),
+            coarse_map,
+            URUTORA_CLASSES["face"],
+            session,
+            (FACE_PARSING_CLASSES["skin"],),
+            skin_class=FACE_PARSING_CLASSES["skin"],
+        )
+
         self.assertEqual(len(session.inputs), 2)
         self.assertTrue((result[:, :100] > 0).any())
         self.assertTrue((result[:, 100:] > 0).any())
