@@ -1,24 +1,38 @@
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
+from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock, call, patch
 
 import numpy as np
 import torch
 from PIL import Image
 
 
-PROJECT_PARENT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_PARENT = PROJECT_ROOT.parent
+FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "human_parts_ultra_golden.json"
 sys.path.insert(0, str(PROJECT_PARENT))
 
 from ComfyUI_Human_Parts import NODE_CLASS_MAPPINGS
-from ComfyUI_Human_Parts.nodes_ultra import HumanPartsUltra, _segment_parts
+from ComfyUI_Human_Parts.detector import matting
+from ComfyUI_Human_Parts.nodes_ultra import (
+    ULTRA_CLASSES,
+    HumanPartsUltra,
+    _execution_providers,
+    _load_session,
+    _segment_parts,
+)
 
 
-class FakeSession:
+class GoldenSession:
+    def __init__(self, class_map: np.ndarray):
+        self.class_map = class_map
+
     def get_inputs(self):
         return [SimpleNamespace(name="image")]
 
@@ -26,28 +40,23 @@ class FakeSession:
         return [SimpleNamespace(name="segmentation")]
 
     def run(self, output_names, inputs):
-        logits = np.zeros((1, 2, 2, 22), dtype=np.float32)
-        logits[0, 0, 0, 18] = 1.0
-        logits[0, 0, 1, 19] = 1.0
-        logits[0, 1, :, 0] = 1.0
+        height, width = self.class_map.shape
+        logits = np.zeros((1, height, width, 22), dtype=np.float32)
+        for row in range(height):
+            for column in range(width):
+                logits[0, row, column, self.class_map[row, column]] = 1.0
         return [logits]
 
 
-def _node_arguments(image: torch.Tensor) -> dict:
-    return {
+def _load_golden_fixture() -> dict:
+    with FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
+        return json.load(fixture_file)
+
+
+def _node_arguments(image: torch.Tensor, **overrides) -> dict:
+    arguments = {
         "image": image,
-        "face": False,
-        "hair": False,
-        "glasses": False,
-        "top_clothes": False,
-        "bottom_clothes": False,
-        "torso_skin": False,
-        "left_arm": False,
-        "right_arm": False,
-        "left_leg": False,
-        "right_leg": False,
-        "left_foot": True,
-        "right_foot": False,
+        **{name: False for name in ULTRA_CLASSES},
         "detail_method": "GuidedFilter",
         "detail_erode": 8,
         "detail_dilate": 6,
@@ -57,71 +66,483 @@ def _node_arguments(image: torch.Tensor) -> dict:
         "device": "cpu",
         "max_megapixels": 2.0,
     }
+    arguments.update(overrides)
+    return arguments
 
 
-class HumanPartsUltraTests(unittest.TestCase):
-    def test_layerstyle_workflow_identifier_is_registered(self):
+class HumanPartsUltraGoldenTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.golden = _load_golden_fixture()
+        cls.rgb = np.asarray(cls.golden["rgb"], dtype=np.uint8)
+        cls.image = Image.fromarray(cls.rgb, mode="RGB")
+        cls.image_tensor = torch.from_numpy(
+            cls.rgb.astype(np.float32) / 255.0
+        ).unsqueeze(0)
+        cls.session = GoldenSession(
+            np.asarray(cls.golden["class_map"], dtype=np.int64)
+        )
+
+    def assertGoldenMask(self, actual: torch.Tensor, expected) -> None:
+        expected_tensor = torch.tensor([expected], dtype=torch.float32)
+        self.assertTrue(
+            torch.equal(actual, expected_tensor),
+            f"\nactual:\n{actual}\nexpected:\n{expected_tensor}",
+        )
+
+    def test_every_part_matches_the_pre_modernization_golden_output(self):
+        for part_name, expected in self.golden["parts"].items():
+            with self.subTest(part=part_name):
+                actual = _segment_parts(
+                    self.image, self.session, {part_name: True}
+                )
+                self.assertGoldenMask(actual, expected)
+
+    def test_empty_all_and_combined_selections_match_golden_outputs(self):
+        selections = {
+            "face_hair_glasses": {"face": True, "hair": True, "glasses": True},
+            "left_side": {"left_arm": True, "left_leg": True, "left_foot": True},
+            "empty": {},
+            "all": {name: True for name in ULTRA_CLASSES},
+        }
+        for combination, selected in selections.items():
+            with self.subTest(combination=combination):
+                actual = _segment_parts(self.image, self.session, selected)
+                self.assertGoldenMask(
+                    actual, self.golden["combinations"][combination]
+                )
+
+    def test_left_and_right_foot_remain_independent(self):
+        left = _segment_parts(self.image, self.session, {"left_foot": True})
+        right = _segment_parts(self.image, self.session, {"right_foot": True})
+
+        self.assertGoldenMask(left, self.golden["parts"]["left_foot"])
+        self.assertGoldenMask(right, self.golden["parts"]["right_foot"])
+        self.assertFalse(torch.equal(left, right))
+
+    def test_multiple_image_batches_and_rgba_alpha_match_mask_exactly(self):
+        image_batch = torch.cat((self.image_tensor, self.image_tensor), dim=0)
+        with patch(
+            "ComfyUI_Human_Parts.nodes_ultra._load_session",
+            return_value=self.session,
+        ):
+            rgba, mask = HumanPartsUltra().human_parts_ultra(
+                **_node_arguments(image_batch, face=True, left_foot=True)
+            )
+
+        expected = np.maximum(
+            np.asarray(self.golden["parts"]["face"]),
+            np.asarray(self.golden["parts"]["left_foot"]),
+        )
+        expected_batch = torch.tensor(
+            np.stack((expected, expected)), dtype=torch.float32
+        )
+        self.assertEqual(rgba.shape, (2, 4, 4, 4))
+        self.assertEqual(mask.shape, (2, 4, 4))
+        self.assertEqual(rgba.dtype, torch.float32)
+        self.assertEqual(mask.dtype, torch.float32)
+        self.assertTrue(torch.equal(mask, expected_batch))
+        self.assertTrue(torch.equal(rgba[..., 3], mask))
+        self.assertTrue(torch.equal(rgba[..., :3], image_batch))
+
+    def test_golden_mask_is_not_brightness_enhanced(self):
+        mask = _segment_parts(self.image, self.session, {"face": True})
+        self.assertEqual(set(mask.unique().tolist()), {0.0, 1.0})
+        self.assertGoldenMask(mask, self.golden["parts"]["face"])
+
+
+class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
+    EXPECTED_INPUT_ORDER = [
+        "image",
+        "face",
+        "hair",
+        "glasses",
+        "top_clothes",
+        "bottom_clothes",
+        "torso_skin",
+        "left_arm",
+        "right_arm",
+        "left_leg",
+        "right_leg",
+        "left_foot",
+        "right_foot",
+        "detail_method",
+        "detail_erode",
+        "detail_dilate",
+        "black_point",
+        "white_point",
+        "process_detail",
+        "device",
+        "max_megapixels",
+    ]
+
+    def test_legacy_workflow_identifiers_are_registered(self):
         self.assertIs(
             NODE_CLASS_MAPPINGS["LayerMask: HumanPartsUltra"], HumanPartsUltra
         )
+        self.assertIs(NODE_CLASS_MAPPINGS["HumanPartsUltra"], HumanPartsUltra)
+        self.assertIn("HumanParts", NODE_CLASS_MAPPINGS)
 
     def test_widget_order_matches_layerstyle_workflows(self):
-        self.assertEqual(
-            list(HumanPartsUltra.INPUT_TYPES()["required"]),
-            [
-                "image",
-                "face",
-                "hair",
-                "glasses",
-                "top_clothes",
-                "bottom_clothes",
-                "torso_skin",
-                "left_arm",
-                "right_arm",
-                "left_leg",
-                "right_leg",
-                "left_foot",
-                "right_foot",
-                "detail_method",
-                "detail_erode",
-                "detail_dilate",
-                "black_point",
-                "white_point",
-                "process_detail",
-                "device",
-                "max_megapixels",
-            ],
-        )
+        required = HumanPartsUltra.INPUT_TYPES()["required"]
+        self.assertEqual(list(required), self.EXPECTED_INPUT_ORDER)
+        self.assertEqual(required["device"][0], ["cuda", "cpu", "auto"])
+        self.assertEqual(required["device"][1]["default"], "auto")
 
-    def test_left_and_right_foot_selections_are_independent(self):
-        image = Image.new("RGB", (2, 2), "black")
-        left = _segment_parts(image, FakeSession(), {"left_foot": True})
-        right = _segment_parts(image, FakeSession(), {"right_foot": True})
-
-        self.assertEqual(left.shape, (1, 2, 2))
-        self.assertEqual(right.shape, (1, 2, 2))
-        self.assertTrue(
-            torch.equal(left, torch.tensor([[[1.0, 0.0], [0.0, 0.0]]]))
-        )
-        self.assertTrue(
-            torch.equal(right, torch.tensor([[[0.0, 1.0], [0.0, 0.0]]]))
-        )
-
-    def test_node_returns_modern_batch_shapes(self):
-        image = torch.zeros((2, 2, 2, 3), dtype=torch.float32)
+    def test_legacy_positional_widget_values_still_select_right_foot(self):
+        golden = _load_golden_fixture()
+        rgb = np.asarray(golden["rgb"], dtype=np.uint8)
+        image = torch.from_numpy(rgb.astype(np.float32) / 255.0).unsqueeze(0)
+        session = GoldenSession(np.asarray(golden["class_map"], dtype=np.int64))
+        # Widget values are stored positionally in legacy workflow JSON.
+        saved_widget_values = [
+            False, False, False, False, False, False,
+            False, False, False, False, False, True,
+            "GuidedFilter", 8, 6, 0.01, 0.99, False, "cpu", 2.0,
+        ]
+        arguments = dict(zip(self.EXPECTED_INPUT_ORDER[1:], saved_widget_values))
+        arguments["image"] = image
 
         with patch(
             "ComfyUI_Human_Parts.nodes_ultra._load_session",
-            return_value=FakeSession(),
+            return_value=session,
         ):
-            rgba, mask = HumanPartsUltra().human_parts_ultra(
-                **_node_arguments(image)
+            _, mask = HumanPartsUltra().human_parts_ultra(**arguments)
+
+        expected = torch.tensor(
+            [golden["parts"]["right_foot"]], dtype=torch.float32
+        )
+        self.assertTrue(torch.equal(mask, expected))
+
+
+class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.golden = _load_golden_fixture()
+        rgb = np.asarray(self.golden["rgb"], dtype=np.uint8)
+        self.image = torch.from_numpy(rgb.astype(np.float32) / 255.0).unsqueeze(0)
+        self.session = GoldenSession(
+            np.asarray(self.golden["class_map"], dtype=np.int64)
+        )
+
+    def test_guided_filter_refinement(self):
+        refined = torch.full((1, 4, 4), 0.5, dtype=torch.float32)
+        with (
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra._load_session",
+                return_value=self.session,
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.guided_filter_alpha",
+                return_value=refined,
+            ) as guided,
+        ):
+            _, mask = HumanPartsUltra().human_parts_ultra(
+                **_node_arguments(self.image, face=True, process_detail=True)
+            )
+        guided.assert_called_once()
+        self.assertEqual(mask.shape, (1, 4, 4))
+
+    def test_pymatting_refinement(self):
+        refined = torch.full((1, 4, 4), 0.25, dtype=torch.float32)
+        with (
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra._load_session",
+                return_value=self.session,
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.pymatting_alpha",
+                return_value=refined,
+            ) as pymatting,
+        ):
+            _, mask = HumanPartsUltra().human_parts_ultra(
+                **_node_arguments(
+                    self.image,
+                    face=True,
+                    process_detail=True,
+                    detail_method="PyMatting",
+                )
+            )
+        pymatting.assert_called_once()
+        self.assertTrue(torch.equal(mask, refined))
+
+    def test_every_vitmatte_method_refines_the_mask(self):
+        for method in matting.VITMATTE_REPOSITORIES:
+            with self.subTest(method=method):
+                matte = Image.new("L", (4, 4), 128)
+                with (
+                    patch(
+                        "ComfyUI_Human_Parts.nodes_ultra._load_session",
+                        return_value=self.session,
+                    ),
+                    patch(
+                        "ComfyUI_Human_Parts.nodes_ultra.generate_vitmatte_trimap",
+                        return_value=matte,
+                    ) as trimap,
+                    patch(
+                        "ComfyUI_Human_Parts.nodes_ultra.generate_vitmatte",
+                        return_value=matte,
+                    ) as vitmatte,
+                ):
+                    _, mask = HumanPartsUltra().human_parts_ultra(
+                        **_node_arguments(
+                            self.image,
+                            face=True,
+                            process_detail=True,
+                            detail_method=method,
+                        )
+                    )
+                trimap.assert_called_once()
+                vitmatte.assert_called_once()
+                self.assertEqual(mask.shape, (1, 4, 4))
+
+
+class TorchGuidedFilterTests(unittest.TestCase):
+    def test_refinement_does_not_require_opencv_ximgproc(self):
+        image = torch.rand((1, 7, 9, 3), dtype=torch.float32)
+        mask = torch.rand((1, 7, 9), dtype=torch.float32)
+
+        with patch.dict(sys.modules, {"cv2": None, "cv2.ximgproc": None}):
+            refined = matting.guided_filter_alpha(image, mask, 2)
+
+        self.assertEqual(refined.shape, mask.shape)
+        self.assertEqual(refined.dtype, torch.float32)
+        self.assertEqual(refined.device, image.device)
+        self.assertTrue(torch.isfinite(refined).all())
+
+    def test_constant_alpha_is_preserved(self):
+        image = torch.rand((2, 5, 6, 3), dtype=torch.float32)
+        mask = torch.full((2, 5, 6), 0.37, dtype=torch.float32)
+
+        refined = matting.guided_filter_alpha(image, mask, 3)
+
+        self.assertTrue(torch.allclose(refined, mask, atol=1e-6))
+
+    def test_guide_contrast_preserves_a_matching_mask_edge(self):
+        mask = torch.zeros((1, 9, 9), dtype=torch.float32)
+        mask[:, :, 4:] = 1.0
+        contrast_guide = mask.unsqueeze(-1).expand(-1, -1, -1, 3)
+        flat_guide = torch.zeros_like(contrast_guide)
+
+        contrast_result = matting.guided_filter_alpha(contrast_guide, mask, 3)
+        flat_result = matting.guided_filter_alpha(flat_guide, mask, 3)
+
+        contrast_error = (contrast_result - mask).abs().mean()
+        flat_error = (flat_result - mask).abs().mean()
+        self.assertLess(contrast_error, flat_error)
+
+    def test_invalid_image_and_mask_shapes_are_actionable(self):
+        with self.assertRaisesRegex(ValueError, "dimensions must match"):
+            matting.guided_filter_alpha(
+                torch.zeros((1, 4, 4, 3)), torch.zeros((1, 5, 4)), 1
             )
 
-        self.assertEqual(rgba.shape, (2, 2, 2, 4))
-        self.assertEqual(rgba.dtype, torch.float32)
-        self.assertEqual(mask.shape, (2, 2, 2))
-        self.assertEqual(mask.dtype, torch.float32)
+
+class OnnxSessionLifecycleTests(unittest.TestCase):
+    def tearDown(self):
+        _load_session.cache_clear()
+
+    def test_missing_model_has_an_actionable_error(self):
+        missing = str(Path(tempfile.gettempdir()) / "missing-human-parts.onnx")
+        with self.assertRaisesRegex(FileNotFoundError, "Run install.py"):
+            _load_session(missing, ("CPUExecutionProvider",))
+
+    def test_corrupt_model_reports_provider_attempts(self):
+        with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
+            with patch(
+                "ComfyUI_Human_Parts.nodes_ultra.ort.InferenceSession",
+                side_effect=ValueError("invalid protobuf"),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "CPUExecutionProvider.*invalid protobuf"
+                ):
+                    _load_session(model_file.name, ("CPUExecutionProvider",))
+
+    def test_provider_initialization_falls_back_to_cpu(self):
+        cpu_session = object()
+
+        def create_session(path, providers=None):
+            if providers == ["CPUExecutionProvider"]:
+                return cpu_session
+            raise RuntimeError("provider unavailable")
+
+        with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
+            with patch(
+                "ComfyUI_Human_Parts.nodes_ultra.ort.InferenceSession",
+                side_effect=create_session,
+            ) as inference_session:
+                actual = _load_session(
+                    model_file.name,
+                    ("TensorrtExecutionProvider", "CPUExecutionProvider"),
+                )
+
+        self.assertIs(actual, cpu_session)
+        self.assertEqual(
+            inference_session.call_args_list,
+            [
+                call(
+                    model_file.name,
+                    providers=[
+                        "TensorrtExecutionProvider",
+                        "CPUExecutionProvider",
+                    ],
+                ),
+                call(model_file.name, providers=["TensorrtExecutionProvider"]),
+                call(model_file.name, providers=["CPUExecutionProvider"]),
+            ],
+        )
+
+    def test_provider_preference_only_contains_available_providers(self):
+        with patch(
+            "ComfyUI_Human_Parts.nodes_ultra.ort.get_available_providers",
+            return_value=["CPUExecutionProvider"],
+        ):
+            self.assertEqual(_execution_providers(), ("CPUExecutionProvider",))
+
+
+class FakeMovableTensor:
+    def __init__(self):
+        self.devices = []
+
+    def to(self, device):
+        self.devices.append(torch.device(device))
+        return self
+
+
+class FakeVitMatteModel:
+    def __init__(self):
+        self.devices = []
+
+    def to(self, device):
+        self.devices.append(torch.device(device))
+        return self
+
+    def __call__(self, **inputs):
+        return SimpleNamespace(alphas=torch.ones((1, 1, 2, 2)))
+
+
+class FakeVitMatteProcessor:
+    def __call__(self, **kwargs):
+        return {"pixel_values": FakeMovableTensor()}
+
+
+class VitMatteDeviceLifecycleTests(unittest.TestCase):
+    def test_explicit_cpu_device(self):
+        self.assertEqual(matting._resolve_torch_device("cpu"), torch.device("cpu"))
+
+    def test_explicit_cuda_falls_back_when_unavailable(self):
+        with patch("torch.cuda.is_available", return_value=False):
+            self.assertEqual(
+                matting._resolve_torch_device("cuda"), torch.device("cpu")
+            )
+
+    def test_explicit_cuda_is_preserved_when_available(self):
+        with patch("torch.cuda.is_available", return_value=True):
+            self.assertEqual(
+                matting._resolve_torch_device("cuda"), torch.device("cuda")
+            )
+
+    def test_auto_uses_comfyui_model_management_device(self):
+        comfy_module = ModuleType("comfy")
+        management_module = ModuleType("comfy.model_management")
+        management_module.get_torch_device = Mock(return_value="mps")
+        comfy_module.model_management = management_module
+        with patch.dict(
+            sys.modules,
+            {
+                "comfy": comfy_module,
+                "comfy.model_management": management_module,
+            },
+        ):
+            self.assertEqual(
+                matting._resolve_torch_device("auto"), torch.device("mps")
+            )
+
+    def test_vitmatte_offloads_after_each_repeated_execution(self):
+        model = FakeVitMatteModel()
+        processor = FakeVitMatteProcessor()
+        image = Image.new("RGB", (2, 2), "white")
+        trimap = Image.new("L", (2, 2), 128)
+
+        with (
+            patch(
+                "ComfyUI_Human_Parts.detector.matting._load_vitmatte",
+                return_value=(model, processor),
+            ) as loader,
+            patch(
+                "ComfyUI_Human_Parts.detector.matting._resolve_torch_device",
+                return_value=torch.device("cuda"),
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.empty_cache") as empty_cache,
+            patch.object(matting._load_vitmatte, "cache_clear") as cache_clear,
+        ):
+            first = matting.generate_vitmatte(
+                image, trimap, "VITMatte(local)", "cuda", 2.0
+            )
+            second = matting.generate_vitmatte(
+                image, trimap, "VITMatte(local)", "cuda", 2.0
+            )
+
+        self.assertEqual(first.size, (2, 2))
+        self.assertEqual(second.size, (2, 2))
+        self.assertEqual(loader.call_count, 2)
+        self.assertEqual(
+            model.devices,
+            [
+                torch.device("cuda"),
+                torch.device("cpu"),
+                torch.device("cuda"),
+                torch.device("cpu"),
+            ],
+        )
+        self.assertEqual(empty_cache.call_count, 2)
+        self.assertEqual(cache_clear.call_count, 2)
+
+    def test_vitmatte_cleans_up_after_inference_failure(self):
+        model = FakeVitMatteModel()
+        processor = Mock(side_effect=RuntimeError("preprocessing failed"))
+
+        with (
+            patch(
+                "ComfyUI_Human_Parts.detector.matting._load_vitmatte",
+                return_value=(model, processor),
+            ),
+            patch(
+                "ComfyUI_Human_Parts.detector.matting._resolve_torch_device",
+                return_value=torch.device("cuda"),
+            ),
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.empty_cache") as empty_cache,
+            patch.object(matting._load_vitmatte, "cache_clear") as cache_clear,
+            self.assertRaisesRegex(RuntimeError, "preprocessing failed"),
+        ):
+            matting.generate_vitmatte(
+                Image.new("RGB", (2, 2)),
+                Image.new("L", (2, 2)),
+                "VITMatte(local)",
+                "cuda",
+                2.0,
+            )
+
+        self.assertEqual(model.devices, [torch.device("cuda"), torch.device("cpu")])
+        cache_clear.assert_called_once_with()
+        empty_cache.assert_called_once_with()
+
+    def test_missing_local_vitmatte_model_is_reported(self):
+        transformers_module = ModuleType("transformers")
+        transformers_module.VitMatteForImageMatting = object
+        transformers_module.VitMatteImageProcessor = object
+        with (
+            patch.dict(sys.modules, {"transformers": transformers_module}),
+            patch(
+                "ComfyUI_Human_Parts.detector.matting.os.path.isdir",
+                return_value=False,
+            ),
+            self.assertRaisesRegex(FileNotFoundError, "VITMatte model not found"),
+        ):
+            matting._load_vitmatte.__wrapped__(
+                "hustvl/vitmatte-small-composition-1k", True
+            )
 
 
 if __name__ == "__main__":

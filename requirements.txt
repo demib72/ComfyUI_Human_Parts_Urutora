@@ -2,7 +2,7 @@ onnxruntime
 numpy
 Pillow>=10.1.0
 tqdm
-opencv-contrib-python
+opencv-python
 pymatting
 transformers>=4.45.0
 huggingface-hub>=0.23.4

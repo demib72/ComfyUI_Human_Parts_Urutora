@@ -6,6 +6,7 @@ under the MIT License. See THIRD_PARTY_NOTICES for the complete notice.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 import numpy as np
@@ -58,9 +59,47 @@ def _execution_providers() -> tuple[str, ...]:
 
 @lru_cache(maxsize=1)
 def _load_session(path: str, providers: tuple[str, ...]) -> ort.InferenceSession:
-    if not providers:
-        return ort.InferenceSession(path)
-    return ort.InferenceSession(path, providers=list(providers))
+    """Load the ONNX model, retrying with less specialized providers.
+
+    ONNX Runtime may advertise a provider even when it cannot initialize it on
+    the current machine. Keep provider selection deterministic, but fall back
+    through the available providers so CPU-only and partially configured GPU
+    installations can still run the node.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"Human Parts ONNX model not found at {path}. Run install.py or "
+            "place deeplabv3p-resnet50-human.onnx in that directory."
+        )
+
+    attempts: list[tuple[str, ...]] = []
+    if providers:
+        attempts.append(providers)
+        attempts.extend((provider,) for provider in providers)
+    else:
+        attempts.append(())
+
+    errors: list[tuple[tuple[str, ...], Exception]] = []
+    seen: set[tuple[str, ...]] = set()
+    for provider_attempt in attempts:
+        if provider_attempt in seen:
+            continue
+        seen.add(provider_attempt)
+        try:
+            if provider_attempt:
+                return ort.InferenceSession(path, providers=list(provider_attempt))
+            return ort.InferenceSession(path)
+        except Exception as error:  # ONNX Runtime uses several exception types.
+            errors.append((provider_attempt, error))
+
+    attempted = ", ".join(
+        "+".join(provider_attempt) or "ONNX Runtime default"
+        for provider_attempt, _ in errors
+    )
+    raise RuntimeError(
+        f"Unable to load Human Parts ONNX model at {path}. "
+        f"Provider attempts: {attempted}. Last error: {errors[-1][1]}"
+    ) from errors[-1][1]
 
 
 def _segment_parts(
@@ -150,7 +189,12 @@ class HumanPartsUltra:
                     },
                 ),
                 "process_detail": ("BOOLEAN", {"default": True}),
-                "device": (["cuda", "cpu"],),
+                # Keep the legacy choices in place for saved workflows while
+                # making ComfyUI-managed device selection the new default.
+                "device": (
+                    ["cuda", "cpu", "auto"],
+                    {"default": "auto"},
+                ),
                 "max_megapixels": (
                     "FLOAT",
                     {"default": 2.0, "min": 1.0, "max": 999.0, "step": 0.1},

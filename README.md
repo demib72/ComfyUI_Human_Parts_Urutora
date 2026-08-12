@@ -60,12 +60,20 @@ This fork also includes a standalone port of LayerStyle Advance's
 identifier can load without installing the complete LayerStyle Advance node
 suite.
 
+Human Parts Ultra was originally implemented by
+[chflame163](https://github.com/chflame163) as part of
+[ComfyUI LayerStyle Advance](https://github.com/chflame163/ComfyUI_LayerStyle_Advance),
+building on Metal3d's original Human Parts node. The port is used under the
+MIT License with its copyright and permission notice preserved in
+[THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).
+
 In addition to the ONNX human-parts segmentation, Human Parts Ultra provides:
 
 - Batch processing.
 - An RGBA image output whose alpha channel contains the selected mask.
 - A standard ComfyUI `MASK` output.
-- Optional VITMatte, PyMatting, or Guided Filter edge refinement.
+- Optional VITMatte, PyMatting, or Torch-native Guided Filter edge refinement
+  without OpenCV contrib/ximgproc.
 - CPU or CUDA selection for VITMatte.
 
 VITMatte models are downloaded from Hugging Face into
