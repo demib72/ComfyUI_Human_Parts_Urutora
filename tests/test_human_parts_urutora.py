@@ -265,7 +265,7 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
         self.assertEqual(set(mask.unique().tolist()), {0.0, 1.0})
         self.assertGoldenMask(mask, self.golden["parts"]["face"])
 
-    def test_anatomical_masks_are_nonempty_and_stay_in_source_classes(self):
+    def test_geometric_eye_mask_is_nonempty_and_stays_in_face(self):
         class_map = np.zeros((100, 80), dtype=np.int64)
         class_map[5:30, 20:60] = URUTORA_CLASSES["face"]
         class_map[30:70, 15:65] = URUTORA_CLASSES["torso_skin"]
@@ -274,23 +274,12 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
         image = Image.new("RGB", (80, 100), "white")
         session = GoldenSession(class_map)
 
-        allowed_classes = {
-            "eyes": {URUTORA_CLASSES["face"]},
-            "breasts": {URUTORA_CLASSES["torso_skin"]},
-            "groin": {
-                URUTORA_CLASSES["torso_skin"],
-                URUTORA_CLASSES["left_leg"],
-                URUTORA_CLASSES["right_leg"],
-            },
-        }
-        for part_name in URUTORA_ANATOMICAL_PARTS:
-            with self.subTest(part=part_name):
-                mask = _segment_parts(image, session, {part_name: True})
-                selected = mask.squeeze(0).numpy().astype(bool)
-                self.assertTrue(selected.any())
-                self.assertTrue(
-                    np.isin(class_map[selected], list(allowed_classes[part_name])).all()
-                )
+        mask = _segment_parts(image, session, {"eyes": True})
+        selected = mask.squeeze(0).numpy().astype(bool)
+        self.assertTrue(selected.any())
+        self.assertTrue(
+            np.isin(class_map[selected], [URUTORA_CLASSES["face"]]).all()
+        )
 
     def test_eye_selection_uses_native_face_parser_classes_when_available(self):
         coarse_map = np.zeros((8, 8), dtype=np.int64)
@@ -312,6 +301,36 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
         self.assertGreater(mask.sum().item(), 0)
         self.assertEqual(face_session.inputs[0].shape, (1, 3, 512, 512))
         self.assertEqual(face_session.inputs[0].dtype, np.float32)
+
+    def test_face_skin_preserves_identity_features(self):
+        coarse_map = np.full((8, 8), URUTORA_CLASSES["face"], dtype=np.int64)
+        face_map = np.full((8, 8), FACE_PARSING_CLASSES["skin"], dtype=np.int64)
+        preserved_classes = (
+            "left_eyebrow",
+            "right_eyebrow",
+            "left_eye",
+            "right_eye",
+            "left_ear",
+            "right_ear",
+            "nose",
+            "mouth",
+            "upper_lip",
+            "lower_lip",
+        )
+        for column, class_name in enumerate(preserved_classes):
+            face_map[column // 8, column % 8] = FACE_PARSING_CLASSES[class_name]
+
+        mask = _segment_parts(
+            Image.new("RGB", (80, 80), "white"),
+            GoldenSession(coarse_map),
+            {"face_skin": True},
+            FaceParsingSession(face_map),
+        ).squeeze(0)
+
+        self.assertGreater(mask.sum().item(), 0)
+        for column in range(len(preserved_classes)):
+            y0, x0 = (column // 8) * 10, (column % 8) * 10
+            self.assertEqual(mask[y0 : y0 + 10, x0 : x0 + 10].sum().item(), 0)
 
 
 class FaceParsingTests(unittest.TestCase):
@@ -345,14 +364,13 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
     EXPECTED_INPUT_ORDER = [
         "image",
         "face",
+        "face_skin",
         "eyes",
         "hair",
         "glasses",
         "top_clothes",
         "bottom_clothes",
         "torso_skin",
-        "breasts",
-        "groin",
         "left_arm",
         "right_arm",
         "left_leg",
@@ -384,11 +402,9 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         schema = HumanPartsUrutora.define_schema()
         input_ids = [item.id for item in schema.inputs]
         self.assertEqual(input_ids, self.EXPECTED_INPUT_ORDER)
-        self.assertEqual(input_ids.index("eyes"), input_ids.index("face") + 1)
-        self.assertEqual(
-            input_ids[input_ids.index("torso_skin") + 1 : input_ids.index("torso_skin") + 3],
-            ["breasts", "groin"],
-        )
+        self.assertEqual(input_ids.index("face_skin"), input_ids.index("face") + 1)
+        self.assertNotIn("breasts", input_ids)
+        self.assertNotIn("groin", input_ids)
         device = next(item for item in schema.inputs if item.id == "device")
         self.assertEqual(device.options, ["cuda", "cpu", "auto"])
         self.assertEqual(device.default, "auto")
@@ -397,8 +413,8 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(max_megapixels.default, 2.0)
         self.assertEqual(max_megapixels.min, 1.0)
-        groin = next(item for item in schema.inputs if item.id == "groin")
-        self.assertEqual(groin.display_name, "female groin")
+        face_skin = next(item for item in schema.inputs if item.id == "face_skin")
+        self.assertEqual(face_skin.display_name, "face skin (preserve features)")
 
     def test_v3_schemas_match_captured_v1_compatibility_fixture(self):
         with SCHEMA_FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
@@ -444,7 +460,7 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         # Widget values are stored positionally in legacy workflow JSON.
         saved_widget_values = [
             False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False, True,
+            False, False, False, False, False, False, True,
             "GuidedFilter", 8, 6, 0.01, 0.99, False, "cpu", 2.0,
         ]
         arguments = dict(zip(self.EXPECTED_INPUT_ORDER[1:], saved_widget_values))

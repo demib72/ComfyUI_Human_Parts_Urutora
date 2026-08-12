@@ -120,11 +120,12 @@ In addition to the ONNX human-parts segmentation, Human Parts Urutora provides:
 - Optional VITMatte, PyMatting, or Torch-native Guided Filter edge refinement
   without OpenCV contrib/ximgproc.
 - CPU or CUDA selection for VITMatte.
-- Optional `eyes`, `breasts`, and `female groin` masks. Eyes use a lightweight
-  ResNet-18 BiSeNet face parser with native left/right-eye classes, guided by
-  CCIHP face regions so small faces are parsed at higher resolution. Breast and
-  groin masks remain geometric estimates within detected torso-skin and
-  upper-leg regions. Inspect anatomical masks before inpainting.
+- Optional `face skin (preserve features)` and `eyes` masks use a lightweight
+  ResNet-18 BiSeNet face parser, guided by CCIHP face regions so small faces are
+  parsed at higher resolution. Face skin leaves eyebrows, eyes, nose, mouth,
+  lips, and ears unmasked while retaining the surrounding eye-socket skin.
+  Avoid enabling the coarse `face` option at the same time, since it includes
+  the features that the face-skin option is designed to preserve.
 
 VITMatte models are downloaded from Hugging Face into
 `ComfyUI/models/vitmatte` on first use. Select `VITMatte(local)` to prohibit a

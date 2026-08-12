@@ -9,8 +9,24 @@ from PIL import Image
 
 
 FACE_PARSING_CLASSES = {
+    "skin": 1,
+    "left_eyebrow": 2,
+    "right_eyebrow": 3,
     "left_eye": 4,
     "right_eye": 5,
+    "glasses": 6,
+    "left_ear": 7,
+    "right_ear": 8,
+    "earring": 9,
+    "nose": 10,
+    "mouth": 11,
+    "upper_lip": 12,
+    "lower_lip": 13,
+    "neck": 14,
+    "necklace": 15,
+    "clothing": 16,
+    "hair": 17,
+    "hat": 18,
 }
 
 _INPUT_SIZE = (512, 512)

@@ -51,14 +51,13 @@ URUTORA_CLASSES = {
 
 URUTORA_INPUT_ORDER = (
     "face",
+    "face_skin",
     "eyes",
     "hair",
     "glasses",
     "top_clothes",
     "bottom_clothes",
     "torso_skin",
-    "breasts",
-    "groin",
     "left_arm",
     "right_arm",
     "left_leg",
@@ -67,15 +66,21 @@ URUTORA_INPUT_ORDER = (
     "right_foot",
 )
 
-# These regions are not native classes in the 22-class CCIHP model. They are
-# estimated from the model's face, torso-skin, and leg geometry instead.
-URUTORA_ANATOMICAL_PARTS = ("eyes", "breasts", "groin")
+# These regions are not native classes in the 22-class CCIHP model. Face skin
+# uses the finer BiSeNet parser; eyes retain a geometric fallback for installs
+# that do not yet have the face-parsing model.
+URUTORA_ANATOMICAL_PARTS = ("face_skin", "eyes")
 URUTORA_ANATOMICAL_TOOLTIPS = {
+    "face_skin": (
+        "Mask facial skin while preserving eyebrows, eyes, nose, mouth, lips, "
+        "and ears. Includes the skin around the eye sockets. Do not enable "
+        "the whole-face option at the same time."
+    ),
     "eyes": "Estimate both eye regions within the detected face.",
-    "breasts": "Estimate both breast regions within detected torso skin.",
-    "groin": "Estimate the pubic region from detected torso skin and upper legs.",
 }
-URUTORA_ANATOMICAL_DISPLAY_NAMES = {"groin": "female groin"}
+URUTORA_ANATOMICAL_DISPLAY_NAMES = {
+    "face_skin": "face skin (preserve features)"
+}
 
 
 def _ellipse_mask(
@@ -129,52 +134,6 @@ def _anatomical_mask(class_map: np.ndarray, part_name: str) -> np.ndarray:
             )
         return result & source
 
-    if part_name == "breasts":
-        source = class_map == URUTORA_CLASSES["torso_skin"]
-        bounds = _mask_bounds(source)
-        if bounds is None:
-            return result
-        x0, y0, x1, y1 = bounds
-        width, height = x1 - x0, y1 - y0
-        for horizontal_position in (0.32, 0.68):
-            result |= _ellipse_mask(
-                class_map.shape,
-                x0 + horizontal_position * width,
-                y0 + 0.38 * height,
-                max(1.0, 0.24 * width),
-                max(1.0, 0.18 * height),
-            )
-        return result & source
-
-    if part_name == "groin":
-        torso = class_map == URUTORA_CLASSES["torso_skin"]
-        legs = np.isin(
-            class_map,
-            [URUTORA_CLASSES["left_leg"], URUTORA_CLASSES["right_leg"]],
-        )
-        source = torso | legs
-        bounds = _mask_bounds(source)
-        leg_bounds = _mask_bounds(legs)
-        if bounds is None:
-            return result
-        x0, y0, x1, y1 = bounds
-        width, height = x1 - x0, y1 - y0
-        # The top of the detected legs is a more stable pelvis anchor than a
-        # fixed fraction of a full-body box. Fall back to the lower torso.
-        center_y = (
-            leg_bounds[1] + 0.04 * height
-            if leg_bounds is not None
-            else y0 + 0.88 * height
-        )
-        result = _ellipse_mask(
-            class_map.shape,
-            x0 + 0.5 * width,
-            center_y,
-            max(1.0, 0.16 * width),
-            max(1.0, 0.09 * height),
-        )
-        return result & source
-
     return result
 
 
@@ -204,29 +163,37 @@ def _segment_parts(
     else:
         mask = np.zeros_like(class_map, dtype=np.uint8)
 
-    parsed_eye_mask: np.ndarray | None = None
+    parsed_face_mask: np.ndarray | None = None
+    parsed_classes = []
+    if selections.get("face_skin", False):
+        parsed_classes.append(FACE_PARSING_CLASSES["skin"])
+    if selections.get("eyes", False):
+        parsed_classes.extend(
+            (
+                FACE_PARSING_CLASSES["left_eye"],
+                FACE_PARSING_CLASSES["right_eye"],
+            )
+        )
+    if parsed_classes and face_model is not None:
+        parsed_face_mask = segment_face_parts(
+            image,
+            class_map,
+            URUTORA_CLASSES["face"],
+            face_model,
+            tuple(parsed_classes),
+        )
+
     for part_name in URUTORA_ANATOMICAL_PARTS:
         if selections.get(part_name, False):
-            if part_name == "eyes" and face_model is not None:
-                parsed_eye_mask = segment_face_parts(
-                    image,
-                    class_map,
-                    URUTORA_CLASSES["face"],
-                    face_model,
-                    (
-                        FACE_PARSING_CLASSES["left_eye"],
-                        FACE_PARSING_CLASSES["right_eye"],
-                    ),
-                )
-            else:
+            if part_name == "eyes" and face_model is None:
                 mask[_anatomical_mask(class_map, part_name)] = 255
 
     mask_image = Image.fromarray(mask, mode="L").resize(
         original_size, Image.Resampling.NEAREST
     )
-    if parsed_eye_mask is not None:
+    if parsed_face_mask is not None:
         combined = np.maximum(
-            np.asarray(mask_image, dtype=np.uint8), parsed_eye_mask
+            np.asarray(mask_image, dtype=np.uint8), parsed_face_mask
         )
         mask_image = Image.fromarray(combined, mode="L")
     return pil_to_mask(mask_image)
@@ -384,6 +351,9 @@ class HumanPartsUrutora(io.ComfyNode):
         device: str,
         max_megapixels: float,
         eyes: bool = False,
+        face_skin: bool = False,
+        # Retained as hidden keyword arguments so API callers using an older
+        # workflow fail safely after the corresponding widgets are removed.
         breasts: bool = False,
         groin: bool = False,
     ):
@@ -403,19 +373,19 @@ class HumanPartsUrutora(io.ComfyNode):
             "left_foot": left_foot,
             "right_foot": right_foot,
             "eyes": eyes,
-            "breasts": breasts,
-            "groin": groin,
+            "face_skin": face_skin,
         }
 
         face_model = None
-        if eyes:
+        if eyes or face_skin:
             try:
                 face_model = _load_session(face_model_path, providers)
             except FileNotFoundError:
                 print(
                     "[HumanPartsUrutora] Face-parsing model is not installed; "
-                    "falling back to the legacy eye estimate. Run install.py "
-                    "to enable native eye segmentation."
+                    "Run install.py to enable native facial segmentation. "
+                    "Eyes will use the legacy estimate; face skin will remain "
+                    "empty so identity features are not masked accidentally."
                 )
 
         output_images = []

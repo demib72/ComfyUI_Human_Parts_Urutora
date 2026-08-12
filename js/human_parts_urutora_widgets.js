@@ -41,8 +41,8 @@ const APPENDED_SCHEMA_ORDER = [
     "groin",
 ];
 
-// Current schema and desired visual order.
-const INLINE_SCHEMA_ORDER = [
+// Previous inline schema, before breast/groin were replaced with face skin.
+const PREVIOUS_INLINE_SCHEMA_ORDER = [
     "face",
     "eyes",
     "hair",
@@ -68,18 +68,50 @@ const INLINE_SCHEMA_ORDER = [
     "max_megapixels",
 ];
 
+// Current schema and desired visual order.
+const INLINE_SCHEMA_ORDER = [
+    "face",
+    "face_skin",
+    "eyes",
+    "hair",
+    "glasses",
+    "top_clothes",
+    "bottom_clothes",
+    "torso_skin",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "right_leg",
+    "left_foot",
+    "right_foot",
+    "detail_method",
+    "detail_erode",
+    "detail_dilate",
+    "black_point",
+    "white_point",
+    "process_detail",
+    "device",
+    "max_megapixels",
+];
+
 function valuesByName(order, values) {
     return new Map(order.map((name, index) => [name, values[index]]));
 }
 
 function normalizeSerializedValues(values) {
     if (!Array.isArray(values)) return values;
-    if (DETAIL_METHODS.has(values[15])) return values;
-    if (!DETAIL_METHODS.has(values[12])) return values;
+    if (DETAIL_METHODS.has(values[14])) return values;
 
-    const sourceOrder = values.length >= APPENDED_SCHEMA_ORDER.length
-        ? APPENDED_SCHEMA_ORDER
-        : LEGACY_ORDER;
+    let sourceOrder;
+    if (DETAIL_METHODS.has(values[15])) {
+        sourceOrder = PREVIOUS_INLINE_SCHEMA_ORDER;
+    } else if (DETAIL_METHODS.has(values[12])) {
+        sourceOrder = values.length >= APPENDED_SCHEMA_ORDER.length
+            ? APPENDED_SCHEMA_ORDER
+            : LEGACY_ORDER;
+    } else {
+        return values;
+    }
     const oldValues = valuesByName(sourceOrder, values);
     return INLINE_SCHEMA_ORDER.map((name) => oldValues.get(name) ?? false);
 }
