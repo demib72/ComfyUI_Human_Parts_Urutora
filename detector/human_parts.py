@@ -135,7 +135,7 @@ def get_mask(
         image = image.unsqueeze(0)
     if image.ndim != 4:
         raise ValueError(
-            "HumanParts expects an IMAGE tensor shaped [B,H,W,C]; "
+            "HumanPartsUrutoraMaskGenerator expects an IMAGE tensor shaped [B,H,W,C]; "
             f"received {tuple(image.shape)}."
         )
 

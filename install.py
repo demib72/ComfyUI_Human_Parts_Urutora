@@ -30,7 +30,7 @@ def download(url, path, name):
     total = int(request.headers.get("Content-Length", 0))
     with tqdm(
         total=total,
-        desc=f"[HumanParts] Downloading {name} to {path}",
+        desc=f"[HumanPartsUrutora] Downloading {name} to {path}",
         unit="B",
         unit_scale=True,
         unit_divisor=1024,
@@ -45,7 +45,7 @@ def download(url, path, name):
 
 
 os.makedirs(models_dir_path, exist_ok=True)
-print(f"[HumanParts] Using ComfyUI model directory: {models_dir_path}")
+print(f"[HumanPartsUrutora] Using ComfyUI model directory: {models_dir_path}")
 
 if not os.path.exists(model_path):
     download(model_url, model_path, model_name)

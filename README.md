@@ -19,7 +19,7 @@ repository](https://huggingface.co/Metal3d/deeplabv3p-resnet50-human) to share t
 
 You can drag and drop the following image to try:
 
-![Example workflow](./images/HumanPartsWorkflow.png)
+![Example workflow](./images/HumanPartsUrutoraWorkflow.png)
 
 ## DeepLabV3+ ResNet50 for Human
 
@@ -40,7 +40,8 @@ I strongly recommend to use ComfyUI-Manager to install the node. It will install
 # then...
 cd /path/to/your/ComfyUI/custom_nodes
 git clone https://github.com/metal3d/ComfyUI_Human_Parts.git
-cd ComfyUI_Human_Parts
+mv ComfyUI_Human_Parts Human_Parts_Urutora
+cd Human_Parts_Urutora
 pip install -r requirements.txt
 # or
 python -m pip install -r requirements.txt
@@ -48,6 +49,26 @@ python -m pip install -r requirements.txt
 # install the model
 python install.py
 ```
+
+On RunPod, run the commands with the Python executable that launches ComfyUI.
+For the common `/workspace/ComfyUI` layout:
+
+```bash
+cd /workspace/ComfyUI/custom_nodes
+mv ComfyUI_Human_Parts Human_Parts_Urutora 2>/dev/null || true
+cd Human_Parts_Urutora
+/workspace/ComfyUI/venv/bin/python -m pip install -r requirements.txt
+/workspace/ComfyUI/venv/bin/python install.py
+```
+
+Some RunPod templates use `/workspace/ComfyUI/.venv/bin/python` or the system
+`python` instead. Check the ComfyUI startup command and use that exact
+interpreter. The package supports both the current V3 extension API and the
+legacy `NODE_CLASS_MAPPINGS` loader used by older RunPod ComfyUI templates.
+
+Remove any second copy of this node from `custom_nodes`; duplicate copies can
+register the same node identifiers unpredictably. After restarting ComfyUI,
+the startup log should not contain `IMPORT FAILED` for `Human_Parts_Urutora`.
 
 Use the same Python environment that starts your local ComfyUI installation
 for dependency installation, model installation, and tests. For example, from
@@ -59,32 +80,41 @@ this repository when ComfyUI is installed beside it:
 ../ComfyUI/venv/bin/python -m unittest discover -s tests -v
 ```
 
-Then, restart ComfyUI, refresh the UI, and you may find the "Human Parts
-Urutora mask generator" node.
+Then, restart ComfyUI and refresh the UI. The nodes are registered under the
+"Human Parts Urutora" category.
 
-The original `HumanParts` node identifier is retained for existing workflows.
-It supports image batches and returns standard ComfyUI `[B,H,W]` float32 masks.
-Its ONNX session is shared with Human Parts Ultra and reused between executions.
-New workflows may prefer Human Parts Ultra for its additional refinement and
+The node identifiers use a separate Urutora namespace, so this package can be
+installed alongside earlier variants without registration conflicts. Update
+node types in existing workflows to one of the following identifiers:
+
+- `HumanPartsUrutoraMaskGenerator`
+- `HumanPartsUrutora`
+- `LayerMask: HumanPartsUrutora`
+
+No aliases are registered under the old identifiers.
+
+The `HumanPartsUrutoraMaskGenerator` node supports image batches and returns
+standard ComfyUI `[B,H,W]` float32 masks.
+Its ONNX session is shared with Human Parts Urutora and reused between executions.
+Workflows may prefer Human Parts Urutora for its additional refinement and
 RGBA output options.
 
 ![The node](./images/node.png)
 
-## Human Parts Ultra
+## Human Parts Urutora
 
 This fork also includes a standalone port of LayerStyle Advance's
-`LayerMask: HumanPartsUltra` node. Existing workflows using that exact node
-identifier can load without installing the complete LayerStyle Advance node
-suite.
+`LayerMask: HumanPartsUrutora` node without requiring the complete LayerStyle
+Advance node suite.
 
-Human Parts Ultra was originally implemented by
+Human Parts Urutora was originally implemented by
 [chflame163](https://github.com/chflame163) as part of
 [ComfyUI LayerStyle Advance](https://github.com/chflame163/ComfyUI_LayerStyle_Advance),
-building on Metal3d's original Human Parts node. The port is used under the
+building on Metal3d's original Human Parts Urutora node. The port is used under the
 MIT License with its copyright and permission notice preserved in
 [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES).
 
-In addition to the ONNX human-parts segmentation, Human Parts Ultra provides:
+In addition to the ONNX human-parts segmentation, Human Parts Urutora provides:
 
 - Batch processing.
 - An RGBA image output whose alpha channel contains the selected mask.
@@ -105,14 +135,14 @@ ONNX segmentation models are installed with `python install.py`. Existing
 installations should run it again to download the face parser; if it is absent,
 the node logs a warning and uses the legacy geometric eye estimate.
 
-The port fixes the original Ultra node's left-foot selection bug. ONNX uses an
+The port fixes the original upstream node's left-foot selection bug. ONNX uses an
 explicit `auto` provider policy: it tries advertised TensorRT, CUDA, and CPU
 providers in that order, and retries with progressively safer provider chains
-if an accelerated provider cannot initialize. Both Human Parts nodes share this
+if an accelerated provider cannot initialize. Both Human Parts Urutora nodes share this
 behavior.
 
 To choose a starting provider explicitly, set
-`COMFYUI_HUMAN_PARTS_ONNX_PROVIDER` to `tensorrt`, `cuda`, or `cpu` before
+`COMFYUI_HUMAN_PARTS_URUTORA_ONNX_PROVIDER` to `tensorrt`, `cuda`, or `cpu` before
 starting ComfyUI. The default is `auto`; explicit accelerated policies still
 retain lower-priority providers as execution fallbacks. If an explicitly
 selected provider is not installed, the node reports the available providers

@@ -1,4 +1,4 @@
-"""Human Parts Ultra node adapted from ComfyUI LayerStyle Advance.
+"""Human Parts Urutora node adapted from ComfyUI LayerStyle Advance.
 
 The original implementation is Copyright (c) 2024 chflame163 and is used
 under the MIT License. See THIRD_PARTY_NOTICES for the complete notice.
@@ -9,9 +9,9 @@ from __future__ import annotations
 import numpy as np
 import onnxruntime as ort
 import torch
-from comfy_api.latest import io
 from PIL import Image
 
+from .comfy_compat import io
 from .detector.face_parsing import FACE_PARSING_CLASSES, segment_face_parts
 from .detector.matting import (
     VITMATTE_REPOSITORIES,
@@ -34,7 +34,7 @@ from .onnx_lifecycle import (
 from .utils import face_model_path, model_path
 
 
-ULTRA_CLASSES = {
+URUTORA_CLASSES = {
     "hair": 2,
     "glasses": 4,
     "top_clothes": 5,
@@ -49,7 +49,7 @@ ULTRA_CLASSES = {
     "right_foot": 19,
 }
 
-ULTRA_INPUT_ORDER = (
+URUTORA_INPUT_ORDER = (
     "face",
     "eyes",
     "hair",
@@ -69,13 +69,13 @@ ULTRA_INPUT_ORDER = (
 
 # These regions are not native classes in the 22-class CCIHP model. They are
 # estimated from the model's face, torso-skin, and leg geometry instead.
-ULTRA_ANATOMICAL_PARTS = ("eyes", "breasts", "groin")
-ULTRA_ANATOMICAL_TOOLTIPS = {
+URUTORA_ANATOMICAL_PARTS = ("eyes", "breasts", "groin")
+URUTORA_ANATOMICAL_TOOLTIPS = {
     "eyes": "Estimate both eye regions within the detected face.",
     "breasts": "Estimate both breast regions within detected torso skin.",
     "groin": "Estimate the pubic region from detected torso skin and upper legs.",
 }
-ULTRA_ANATOMICAL_DISPLAY_NAMES = {"groin": "female groin"}
+URUTORA_ANATOMICAL_DISPLAY_NAMES = {"groin": "female groin"}
 
 
 def _ellipse_mask(
@@ -113,7 +113,7 @@ def _anatomical_mask(class_map: np.ndarray, part_name: str) -> np.ndarray:
     result = np.zeros(class_map.shape, dtype=bool)
 
     if part_name == "eyes":
-        source = class_map == ULTRA_CLASSES["face"]
+        source = class_map == URUTORA_CLASSES["face"]
         bounds = _mask_bounds(source)
         if bounds is None:
             return result
@@ -130,7 +130,7 @@ def _anatomical_mask(class_map: np.ndarray, part_name: str) -> np.ndarray:
         return result & source
 
     if part_name == "breasts":
-        source = class_map == ULTRA_CLASSES["torso_skin"]
+        source = class_map == URUTORA_CLASSES["torso_skin"]
         bounds = _mask_bounds(source)
         if bounds is None:
             return result
@@ -147,10 +147,10 @@ def _anatomical_mask(class_map: np.ndarray, part_name: str) -> np.ndarray:
         return result & source
 
     if part_name == "groin":
-        torso = class_map == ULTRA_CLASSES["torso_skin"]
+        torso = class_map == URUTORA_CLASSES["torso_skin"]
         legs = np.isin(
             class_map,
-            [ULTRA_CLASSES["left_leg"], ULTRA_CLASSES["right_leg"]],
+            [URUTORA_CLASSES["left_leg"], URUTORA_CLASSES["right_leg"]],
         )
         source = torso | legs
         bounds = _mask_bounds(source)
@@ -195,9 +195,9 @@ def _segment_parts(
     class_map = np.asarray(output).argmax(axis=3).squeeze(0)
 
     selected_indices = [
-        ULTRA_CLASSES[name]
+        URUTORA_CLASSES[name]
         for name, enabled in selections.items()
-        if enabled and name in ULTRA_CLASSES
+        if enabled and name in URUTORA_CLASSES
     ]
     if selected_indices:
         mask = np.isin(class_map, selected_indices).astype(np.uint8) * 255
@@ -205,13 +205,13 @@ def _segment_parts(
         mask = np.zeros_like(class_map, dtype=np.uint8)
 
     parsed_eye_mask: np.ndarray | None = None
-    for part_name in ULTRA_ANATOMICAL_PARTS:
+    for part_name in URUTORA_ANATOMICAL_PARTS:
         if selections.get(part_name, False):
             if part_name == "eyes" and face_model is not None:
                 parsed_eye_mask = segment_face_parts(
                     image,
                     class_map,
-                    ULTRA_CLASSES["face"],
+                    URUTORA_CLASSES["face"],
                     face_model,
                     (
                         FACE_PARSING_CLASSES["left_eye"],
@@ -232,14 +232,72 @@ def _segment_parts(
     return pil_to_mask(mask_image)
 
 
-class HumanPartsUltra(io.ComfyNode):
+class HumanPartsUrutora(io.ComfyNode):
     """Generate and optionally refine masks for selected human parts."""
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
+    FUNCTION = "execute_legacy"
+    CATEGORY = "Human Parts Urutora"
+    DESCRIPTION = __doc__ or ""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
+        booleans = {
+            name: (
+                "BOOLEAN",
+                {
+                    "default": False,
+                    **(
+                        {"label": URUTORA_ANATOMICAL_DISPLAY_NAMES[name]}
+                        if name in URUTORA_ANATOMICAL_DISPLAY_NAMES
+                        else {}
+                    ),
+                    **(
+                        {"tooltip": URUTORA_ANATOMICAL_TOOLTIPS[name]}
+                        if name in URUTORA_ANATOMICAL_TOOLTIPS
+                        else {}
+                    ),
+                },
+            )
+            for name in URUTORA_INPUT_ORDER
+        }
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                **booleans,
+                "detail_method": (methods,),
+                "detail_erode": (
+                    "INT",
+                    {"default": 8, "min": 1, "max": 255, "step": 1},
+                ),
+                "detail_dilate": (
+                    "INT",
+                    {"default": 6, "min": 1, "max": 255, "step": 1},
+                ),
+                "black_point": (
+                    "FLOAT",
+                    {"default": 0.01, "min": 0.01, "max": 0.98, "step": 0.01},
+                ),
+                "white_point": (
+                    "FLOAT",
+                    {"default": 0.99, "min": 0.02, "max": 0.99, "step": 0.01},
+                ),
+                "process_detail": ("BOOLEAN", {"default": True}),
+                "device": (["cuda", "cpu", "auto"], {"default": "auto"}),
+                "max_megapixels": (
+                    "FLOAT",
+                    {"default": 2.0, "min": 1.0, "max": 999.0, "step": 0.1},
+                ),
+            }
+        }
 
     @classmethod
     def define_schema(cls) -> io.Schema:
         methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
         return io.Schema(
-            node_id="HumanPartsUltra",
+            node_id="HumanPartsUrutora",
             display_name="🧍 Human Parts Urutora",
             category="Human Parts Urutora",
             description=cls.__doc__ or "",
@@ -249,10 +307,10 @@ class HumanPartsUltra(io.ComfyNode):
                     io.Boolean.Input(
                         name,
                         default=False,
-                        display_name=ULTRA_ANATOMICAL_DISPLAY_NAMES.get(name),
-                        tooltip=ULTRA_ANATOMICAL_TOOLTIPS.get(name),
+                        display_name=URUTORA_ANATOMICAL_DISPLAY_NAMES.get(name),
+                        tooltip=URUTORA_ANATOMICAL_TOOLTIPS.get(name),
                     )
-                    for name in ULTRA_INPUT_ORDER
+                    for name in URUTORA_INPUT_ORDER
                 ],
                 io.Combo.Input("detail_method", options=methods),
                 io.Int.Input("detail_erode", default=8, min=1, max=255, step=1),
@@ -343,7 +401,7 @@ class HumanPartsUltra(io.ComfyNode):
                 face_model = _load_session(face_model_path, providers)
             except FileNotFoundError:
                 print(
-                    "[HumanPartsUltra] Face-parsing model is not installed; "
+                    "[HumanPartsUrutora] Face-parsing model is not installed; "
                     "falling back to the legacy eye estimate. Run install.py "
                     "to enable native eye segmentation."
                 )
@@ -366,7 +424,7 @@ class HumanPartsUltra(io.ComfyNode):
                     generate_vitmatte_trimap(mask, detail_erode, detail_dilate)
                     if any(
                         selections.get(name, False)
-                        for name in ULTRA_ANATOMICAL_PARTS
+                        for name in URUTORA_ANATOMICAL_PARTS
                     )
                     else None
                 )
@@ -414,17 +472,22 @@ class HumanPartsUltra(io.ComfyNode):
             output_images.append(pil_to_tensor(rgba_with_mask(original, mask_image)))
             output_masks.append(mask)
 
-        print(f"[HumanPartsUltra] Processed {len(output_images)} image(s).")
+        print(f"[HumanPartsUrutora] Processed {len(output_images)} image(s).")
         return io.NodeOutput(
             torch.cat(output_images, dim=0), torch.cat(output_masks, dim=0)
         )
 
+    @classmethod
+    def execute_legacy(cls, **kwargs):
+        output = cls.execute(**kwargs)
+        return tuple(getattr(output, "result", output))
 
-class LayerStyleHumanPartsUltra(HumanPartsUltra):
+
+class LayerStyleHumanPartsUrutora(HumanPartsUrutora):
     """Compatibility registration for the original LayerStyle workflow ID."""
 
     @classmethod
     def define_schema(cls) -> io.Schema:
         schema = super().define_schema()
-        schema.node_id = "LayerMask: HumanPartsUltra"
+        schema.node_id = "LayerMask: HumanPartsUrutora"
         return schema

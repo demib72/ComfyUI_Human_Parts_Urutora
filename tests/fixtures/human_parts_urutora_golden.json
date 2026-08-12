@@ -1,5 +1,5 @@
 {
-  "description": "Compatibility baseline captured from the standalone HumanPartsUltra port before P0/P1 modernization. Masks are binary and intentionally do not include LayerStyle Advance's 1.08 brightness enhancement.",
+  "description": "Compatibility baseline captured from the standalone HumanPartsUrutora port before P0/P1 modernization. Masks are binary and intentionally do not include LayerStyle Advance's 1.08 brightness enhancement.",
   "size": [4, 4],
   "rgb": [
     [[0, 16, 32], [48, 64, 80], [96, 112, 128], [144, 160, 176]],

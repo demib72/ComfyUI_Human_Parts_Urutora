@@ -277,7 +277,7 @@ def _resolve_torch_device(device: str) -> torch.device:
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if device == "cuda" and not torch.cuda.is_available():
-        print("[HumanPartsUltra] CUDA is unavailable; using CPU for VITMatte.")
+        print("[HumanPartsUrutora] CUDA is unavailable; using CPU for VITMatte.")
         return torch.device("cpu")
     return torch.device(device)
 

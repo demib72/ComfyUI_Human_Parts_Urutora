@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-const NODE_IDS = new Set(["HumanPartsUltra", "LayerMask: HumanPartsUltra"]);
+const NODE_IDS = new Set(["HumanPartsUrutora", "LayerMask: HumanPartsUrutora"]);
 const DETAIL_METHODS = new Set([
     "VITMatte",
     "VITMatte(local)",

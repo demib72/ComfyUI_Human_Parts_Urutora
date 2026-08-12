@@ -1,5 +1,5 @@
 {
-  "HumanParts": {
+  "HumanPartsUrutoraMaskGenerator": {
     "display_name": "🧍 Human Parts Urutora mask generator",
     "category": "Human Parts Urutora",
     "inputs": [
@@ -17,7 +17,7 @@
     "outputs": ["MASK"],
     "output_names": ["mask"]
   },
-  "LayerMask: HumanPartsUltra": {
+  "LayerMask: HumanPartsUrutora": {
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [
@@ -36,7 +36,7 @@
     "outputs": ["IMAGE", "MASK"],
     "output_names": ["image", "mask"]
   },
-  "HumanPartsUltra": {
+  "HumanPartsUrutora": {
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [

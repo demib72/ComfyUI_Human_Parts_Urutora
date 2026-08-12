@@ -11,7 +11,7 @@ import onnxruntime as ort
 from .utils import model_url
 
 
-ONNX_PROVIDER_POLICY_ENV = "COMFYUI_HUMAN_PARTS_ONNX_PROVIDER"
+ONNX_PROVIDER_POLICY_ENV = "COMFYUI_HUMAN_PARTS_URUTORA_ONNX_PROVIDER"
 ONNX_PROVIDER_POLICIES = {
     "auto": None,
     "tensorrt": "TensorrtExecutionProvider",
@@ -75,7 +75,7 @@ def load_session(path: str, providers: tuple[str, ...]) -> ort.InferenceSession:
     """Load an ONNX model, dropping providers that fail initialization."""
     if not os.path.isfile(path):
         raise FileNotFoundError(
-            f"Human Parts ONNX model not found at {path}. Run install.py with "
+            f"Human Parts Urutora ONNX model not found at {path}. Run install.py with "
             "the same Python environment that starts ComfyUI "
             f"(`{sys.executable} install.py`), or download "
             f"{model_url} and save it at that exact path."
@@ -102,6 +102,6 @@ def load_session(path: str, providers: tuple[str, ...]) -> ort.InferenceSession:
         for provider_attempt, error in errors
     )
     raise RuntimeError(
-        f"Unable to load Human Parts ONNX model at {path}. "
+        f"Unable to load Human Parts Urutora ONNX model at {path}. "
         f"Provider failures: {failures}"
     ) from errors[-1][1]

@@ -1,15 +1,16 @@
 import torch
-from comfy_api.latest import io
+
+from .comfy_compat import io
 
 from .detector.human_parts import get_mask, labels
 from .onnx_lifecycle import execution_providers, load_session
 from .utils import model_path
 
 
-class HumanParts(io.ComfyNode):
+class HumanPartsUrutoraMaskGenerator(io.ComfyNode):
     """
     Generate a mask of selected human parts. This legacy workflow identifier is
-    retained for compatibility; new workflows may prefer HumanPartsUltra.
+    available alongside the refined HumanPartsUrutora node.
 
     The model used is DeepLabV3+ with a ResNet50 backbone trained
     by Keras-io, converted to ONNX format.
@@ -19,7 +20,7 @@ class HumanParts(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="HumanParts",
+            node_id="HumanPartsUrutoraMaskGenerator",
             display_name="🧍 Human Parts Urutora mask generator",
             category="Human Parts Urutora",
             description=cls.__doc__ or "",
@@ -54,3 +55,35 @@ class HumanParts(io.ComfyNode):
         ret_tensor, _ = get_mask(image, model=model, rotation=0, **kwargs)
 
         return io.NodeOutput(ret_tensor)
+
+    @classmethod
+    def execute_legacy(cls, image: torch.Tensor, **kwargs):
+        output = cls.execute(image, **kwargs)
+        return tuple(getattr(output, "result", output))
+
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+    FUNCTION = "execute_legacy"
+    CATEGORY = "Human Parts Urutora"
+    DESCRIPTION = __doc__ or ""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                **{
+                    segment_id: (
+                        "BOOLEAN",
+                        {
+                            "default": False,
+                            "label_on": "Enabled",
+                            "label_off": "Disabled",
+                            "tooltip": tooltip,
+                        },
+                    )
+                    for segment_id, tooltip in labels.values()
+                    if segment_id
+                },
+            }
+        }
