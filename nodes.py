@@ -1,13 +1,12 @@
-from typing import Dict, Tuple
-
-import onnxruntime as ort
 import torch
+from comfy_api.latest import io
 
 from .detector.human_parts import get_mask, labels
+from .onnx_lifecycle import execution_providers, load_session
 from .utils import model_path
 
 
-class HumanParts:
+class HumanParts(io.ComfyNode):
     """
     This node is used to get a mask of the human parts in the image.
 
@@ -16,57 +15,41 @@ class HumanParts:
 
     """
 
-    RETURN_TYPES = ("MASK",)
-    RETURN_NAMES = ("mask",)
-    FUNCTION = "get_mask"
-    CATEGORY = "Metal3d"
-    OUTPU_NODE = True
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HumanParts",
+            display_name="🧍 Human Parts Urutora mask generator",
+            category="Human Parts Urutora",
+            description=cls.__doc__ or "",
+            inputs=[
+                io.Image.Input(
+                    "image",
+                    display_name="Image",
+                    tooltip="The image in which to detect human parts",
+                ),
+                *[
+                    io.Boolean.Input(
+                        segment_id,
+                        default=False,
+                        label_on="Enabled",
+                        label_off="Disabled",
+                        tooltip=tooltip,
+                    )
+                    for segment_id, tooltip in labels.values()
+                    if segment_id
+                ],
+            ],
+            outputs=[io.Mask.Output("mask")],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        def _bool_widget(
-            is_enabled=False, tooltip: str | None = None
-        ) -> Tuple[str, dict]:
-            """Helper function to create a boolean widget"""
-            return (
-                "BOOLEAN",
-                {
-                    "default": is_enabled,
-                    "label_on": "Enabled",
-                    "label_off": "Disabled",
-                    "tooltip": tooltip,
-                },
-            )
-
-        # automate the creation of the inputs using the known labels
-        entries: Dict[str, tuple] = {
-            segment[0]: _bool_widget(False, f"{segment[1]}")
-            for segment in labels.values()
-            if segment[0] != ""
-        }
-
-        inputs = {
-            "required": {
-                "image": (
-                    "IMAGE",
-                    {
-                        "label": "Image",
-                        "tooltip": "The image in which to detect human parts",
-                    },
-                )
-            },
-            "optional": {},
-        }
-        inputs["required"].update(entries)
-
-        return inputs
-
-    def get_mask(self, image: torch.Tensor, **kwargs) -> Tuple[torch.Tensor]:
+    def execute(cls, image: torch.Tensor, **kwargs) -> io.NodeOutput:
         """
         Return a Tensor with the mask of the human parts in the image.
         """
 
-        model = ort.InferenceSession(model_path)
+        model = load_session(model_path, execution_providers())
         ret_tensor, _ = get_mask(image, model=model, rotation=0, **kwargs)
 
-        return (ret_tensor,)
+        return io.NodeOutput(ret_tensor)

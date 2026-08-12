@@ -1,0 +1,58 @@
+{
+  "HumanParts": {
+    "display_name": "🧍 Human Parts Urutora mask generator",
+    "category": "Human Parts Urutora",
+    "inputs": [
+      "image", "background", "hat", "hair", "glove", "glasses",
+      "upper_clothes", "face_mask", "coat", "socks", "pants",
+      "torso-skin", "scarf", "skirt", "face", "left-arm", "right-arm",
+      "left-leg", "right-leg", "left-shoe", "right-shoe", "bag"
+    ],
+    "input_types": [
+      "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN"
+    ],
+    "outputs": ["MASK"],
+    "output_names": ["mask"]
+  },
+  "LayerMask: HumanPartsUltra": {
+    "display_name": "🧍 Human Parts Urutora",
+    "category": "Human Parts Urutora",
+    "inputs": [
+      "image", "face", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "torso_skin", "left_arm", "right_arm", "left_leg",
+      "right_leg", "left_foot", "right_foot", "detail_method",
+      "detail_erode", "detail_dilate", "black_point", "white_point",
+      "process_detail", "device", "max_megapixels"
+    ],
+    "input_types": [
+      "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "COMBO", "INT", "INT", "FLOAT", "FLOAT", "BOOLEAN",
+      "COMBO", "FLOAT"
+    ],
+    "outputs": ["IMAGE", "MASK"],
+    "output_names": ["image", "mask"]
+  },
+  "HumanPartsUltra": {
+    "display_name": "🧍 Human Parts Urutora",
+    "category": "Human Parts Urutora",
+    "inputs": [
+      "image", "face", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "torso_skin", "left_arm", "right_arm", "left_leg",
+      "right_leg", "left_foot", "right_foot", "detail_method",
+      "detail_erode", "detail_dilate", "black_point", "white_point",
+      "process_detail", "device", "max_megapixels"
+    ],
+    "input_types": [
+      "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "COMBO", "INT", "INT", "FLOAT", "FLOAT", "BOOLEAN",
+      "COMBO", "FLOAT"
+    ],
+    "outputs": ["IMAGE", "MASK"],
+    "output_names": ["image", "mask"]
+  }
+}

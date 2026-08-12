@@ -6,12 +6,10 @@ under the MIT License. See THIRD_PARTY_NOTICES for the complete notice.
 
 from __future__ import annotations
 
-import os
-from functools import lru_cache
-
 import numpy as np
 import onnxruntime as ort
 import torch
+from comfy_api.latest import io
 from PIL import Image
 
 from .detector.matting import (
@@ -26,6 +24,11 @@ from .detector.matting import (
     pymatting_alpha,
     rgba_with_mask,
     tensor_to_pil,
+)
+from .onnx_lifecycle import (
+    execution_providers as _execution_providers,
+    lifecycle_execution_providers,
+    load_session as _load_session,
 )
 from .utils import model_path
 
@@ -45,61 +48,20 @@ ULTRA_CLASSES = {
     "right_foot": 19,
 }
 
-
-def _execution_providers() -> tuple[str, ...]:
-    available = set(ort.get_available_providers())
-    preferred = (
-        "TensorrtExecutionProvider",
-        "CUDAExecutionProvider",
-        "CPUExecutionProvider",
-    )
-    providers = tuple(provider for provider in preferred if provider in available)
-    return providers or tuple(ort.get_available_providers())
-
-
-@lru_cache(maxsize=1)
-def _load_session(path: str, providers: tuple[str, ...]) -> ort.InferenceSession:
-    """Load the ONNX model, retrying with less specialized providers.
-
-    ONNX Runtime may advertise a provider even when it cannot initialize it on
-    the current machine. Keep provider selection deterministic, but fall back
-    through the available providers so CPU-only and partially configured GPU
-    installations can still run the node.
-    """
-    if not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"Human Parts ONNX model not found at {path}. Run install.py or "
-            "place deeplabv3p-resnet50-human.onnx in that directory."
-        )
-
-    attempts: list[tuple[str, ...]] = []
-    if providers:
-        attempts.append(providers)
-        attempts.extend((provider,) for provider in providers)
-    else:
-        attempts.append(())
-
-    errors: list[tuple[tuple[str, ...], Exception]] = []
-    seen: set[tuple[str, ...]] = set()
-    for provider_attempt in attempts:
-        if provider_attempt in seen:
-            continue
-        seen.add(provider_attempt)
-        try:
-            if provider_attempt:
-                return ort.InferenceSession(path, providers=list(provider_attempt))
-            return ort.InferenceSession(path)
-        except Exception as error:  # ONNX Runtime uses several exception types.
-            errors.append((provider_attempt, error))
-
-    attempted = ", ".join(
-        "+".join(provider_attempt) or "ONNX Runtime default"
-        for provider_attempt, _ in errors
-    )
-    raise RuntimeError(
-        f"Unable to load Human Parts ONNX model at {path}. "
-        f"Provider attempts: {attempted}. Last error: {errors[-1][1]}"
-    ) from errors[-1][1]
+ULTRA_INPUT_ORDER = (
+    "face",
+    "hair",
+    "glasses",
+    "top_clothes",
+    "bottom_clothes",
+    "torso_skin",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "right_leg",
+    "left_foot",
+    "right_foot",
+)
 
 
 def _segment_parts(
@@ -133,77 +95,61 @@ def _segment_parts(
     return pil_to_mask(mask_image)
 
 
-class HumanPartsUltra:
+class HumanPartsUltra(io.ComfyNode):
     """Generate and optionally refine masks for selected human parts."""
 
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "human_parts_ultra"
-    CATEGORY = "Human Parts"
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
+        return io.Schema(
+            node_id="HumanPartsUltra",
+            display_name="🧍 Human Parts Urutora",
+            category="Human Parts Urutora",
+            description=cls.__doc__ or "",
+            inputs=[
+                io.Image.Input("image"),
+                *[
+                    io.Boolean.Input(name, default=False)
+                    for name in ULTRA_INPUT_ORDER
+                ],
+                io.Combo.Input("detail_method", options=methods),
+                io.Int.Input("detail_erode", default=8, min=1, max=255, step=1),
+                io.Int.Input("detail_dilate", default=6, min=1, max=255, step=1),
+                io.Float.Input(
+                    "black_point",
+                    default=0.01,
+                    min=0.01,
+                    max=0.98,
+                    step=0.01,
+                    display_mode=io.NumberDisplay.slider,
+                ),
+                io.Float.Input(
+                    "white_point",
+                    default=0.99,
+                    min=0.02,
+                    max=0.99,
+                    step=0.01,
+                    display_mode=io.NumberDisplay.slider,
+                ),
+                io.Boolean.Input("process_detail", default=True),
+                # Keep legacy choices and ordering for positional workflow data.
+                io.Combo.Input(
+                    "device", options=["cuda", "cpu", "auto"], default="auto"
+                ),
+                io.Float.Input(
+                    "max_megapixels",
+                    default=2.0,
+                    min=1.0,
+                    max=999.0,
+                    step=0.1,
+                ),
+            ],
+            outputs=[io.Image.Output("image"), io.Mask.Output("mask")],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "face": ("BOOLEAN", {"default": False}),
-                "hair": ("BOOLEAN", {"default": False}),
-                "glasses": ("BOOLEAN", {"default": False}),
-                "top_clothes": ("BOOLEAN", {"default": False}),
-                "bottom_clothes": ("BOOLEAN", {"default": False}),
-                "torso_skin": ("BOOLEAN", {"default": False}),
-                "left_arm": ("BOOLEAN", {"default": False}),
-                "right_arm": ("BOOLEAN", {"default": False}),
-                "left_leg": ("BOOLEAN", {"default": False}),
-                "right_leg": ("BOOLEAN", {"default": False}),
-                "left_foot": ("BOOLEAN", {"default": False}),
-                "right_foot": ("BOOLEAN", {"default": False}),
-                "detail_method": (methods,),
-                "detail_erode": (
-                    "INT",
-                    {"default": 8, "min": 1, "max": 255, "step": 1},
-                ),
-                "detail_dilate": (
-                    "INT",
-                    {"default": 6, "min": 1, "max": 255, "step": 1},
-                ),
-                "black_point": (
-                    "FLOAT",
-                    {
-                        "default": 0.01,
-                        "min": 0.01,
-                        "max": 0.98,
-                        "step": 0.01,
-                        "display": "slider",
-                    },
-                ),
-                "white_point": (
-                    "FLOAT",
-                    {
-                        "default": 0.99,
-                        "min": 0.02,
-                        "max": 0.99,
-                        "step": 0.01,
-                        "display": "slider",
-                    },
-                ),
-                "process_detail": ("BOOLEAN", {"default": True}),
-                # Keep the legacy choices in place for saved workflows while
-                # making ComfyUI-managed device selection the new default.
-                "device": (
-                    ["cuda", "cpu", "auto"],
-                    {"default": "auto"},
-                ),
-                "max_megapixels": (
-                    "FLOAT",
-                    {"default": 2.0, "min": 1.0, "max": 999.0, "step": 0.1},
-                ),
-            }
-        }
-
-    def human_parts_ultra(
-        self,
+    def execute(
+        cls,
         image: torch.Tensor,
         face: bool,
         hair: bool,
@@ -285,4 +231,16 @@ class HumanPartsUltra:
             output_masks.append(mask)
 
         print(f"[HumanPartsUltra] Processed {len(output_images)} image(s).")
-        return (torch.cat(output_images, dim=0), torch.cat(output_masks, dim=0))
+        return io.NodeOutput(
+            torch.cat(output_images, dim=0), torch.cat(output_masks, dim=0)
+        )
+
+
+class LayerStyleHumanPartsUltra(HumanPartsUltra):
+    """Compatibility registration for the original LayerStyle workflow ID."""
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        schema = super().define_schema()
+        schema.node_id = "LayerMask: HumanPartsUltra"
+        return schema

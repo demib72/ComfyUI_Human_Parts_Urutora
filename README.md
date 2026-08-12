@@ -1,4 +1,4 @@
-# Yet another custom node to detect human parts
+# Human Parts Urutora
 
 Detect human parts using the DeepLabV3+ ResNet50 model from Keras-io. You can extract hair, arms, legs, and other parts
 with ease and with small memory usage.
@@ -49,7 +49,18 @@ python -m pip install -r requirements.txt
 python install.py
 ```
 
-Then, restart ComfyUI, refresh the UI, and you may find the "Human Parts mask generator" node.
+Use the same Python environment that starts your local ComfyUI installation
+for dependency installation, model installation, and tests. For example, from
+this repository when ComfyUI is installed beside it:
+
+```bash
+../ComfyUI/venv/bin/python -m pip install -r requirements.txt
+../ComfyUI/venv/bin/python install.py
+../ComfyUI/venv/bin/python -m unittest discover -s tests -v
+```
+
+Then, restart ComfyUI, refresh the UI, and you may find the "Human Parts
+Urutora mask generator" node.
 
 ![The node](./images/node.png)
 
@@ -81,6 +92,16 @@ VITMatte models are downloaded from Hugging Face into
 model download and use files already present in that directory. The original
 ONNX segmentation model is still installed with `python install.py`.
 
-The port fixes the original Ultra node's left-foot selection bug and chooses
-only ONNX Runtime execution providers available in the current installation.
+The port fixes the original Ultra node's left-foot selection bug. ONNX uses an
+explicit `auto` provider policy: it tries advertised TensorRT, CUDA, and CPU
+providers in that order, and retries with progressively safer provider chains
+if an accelerated provider cannot initialize. Both Human Parts nodes share this
+behavior.
+
+To choose a starting provider explicitly, set
+`COMFYUI_HUMAN_PARTS_ONNX_PROVIDER` to `tensorrt`, `cuda`, or `cpu` before
+starting ComfyUI. The default is `auto`; explicit accelerated policies still
+retain lower-priority providers as execution fallbacks. If an explicitly
+selected provider is not installed, the node reports the available providers
+and how to return to `auto`.
 See [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES) for attribution and licensing.

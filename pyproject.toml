@@ -1,5 +1,5 @@
 [project]
-name = "comfyui_human_parts"
+name = "comfyui_human_parts_urutora"
 description = "Detect human parts using the DeepLabV3+ ResNet50 model from Keras-io. You can extract hair, arms, legs, and other parts with ease and with small memory usage."
 version = "1.1.0"
 license = { file = "LICENSE" }
@@ -19,5 +19,5 @@ Repository = "https://github.com/metal3d/ComfyUI_Human_Parts"
 
 [tool.comfy]
 PublisherId = "metal3d"
-DisplayName = "Human Parts Detector"
+DisplayName = "Human Parts Urutora"
 Icon = ""

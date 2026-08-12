@@ -1,18 +1,15 @@
-__all__ = ["HumanParts", "HumanPartsUltra"]
+from comfy_api.latest import ComfyExtension, io
 
 from .nodes import HumanParts
-from .nodes_ultra import HumanPartsUltra
+from .nodes_ultra import HumanPartsUltra, LayerStyleHumanPartsUltra
 
-NODE_CLASS_MAPPINGS = {
-    "HumanParts": HumanParts,
-    # Preserve the exact class identifier used by existing LayerStyle workflows.
-    "LayerMask: HumanPartsUltra": HumanPartsUltra,
-    "HumanPartsUltra": HumanPartsUltra,
-}
+__all__ = ["HumanParts", "HumanPartsUltra", "comfy_entrypoint"]
 
-# A dictionary that contains the friendly/humanly readable titles for the nodes
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "HumanParts": "🧍 Human Parts mask generator",
-    "LayerMask: HumanPartsUltra": "🧍 Human Parts Ultra",
-    "HumanPartsUltra": "🧍 Human Parts Ultra",
-}
+
+class HumanPartsExtension(ComfyExtension):
+    async def get_node_list(self) -> list[type[io.ComfyNode]]:
+        return [HumanParts, LayerStyleHumanPartsUltra, HumanPartsUltra]
+
+
+async def comfy_entrypoint() -> HumanPartsExtension:
+    return HumanPartsExtension()

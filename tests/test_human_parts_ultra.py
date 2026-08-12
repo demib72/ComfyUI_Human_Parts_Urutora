@@ -16,14 +16,23 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_PARENT = PROJECT_ROOT.parent
 FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "human_parts_ultra_golden.json"
+SCHEMA_FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "v1_node_schemas.json"
 sys.path.insert(0, str(PROJECT_PARENT))
+# Custom nodes normally run inside ComfyUI. Make its V3 API importable when the
+# test checkout is installed beside ComfyUI, matching the documented layout.
+COMFYUI_ROOT = PROJECT_PARENT / "ComfyUI"
+if COMFYUI_ROOT.is_dir():
+    sys.path.insert(0, str(COMFYUI_ROOT))
 
-from ComfyUI_Human_Parts import NODE_CLASS_MAPPINGS
+from ComfyUI_Human_Parts import comfy_entrypoint
+from ComfyUI_Human_Parts.nodes import HumanParts
 from ComfyUI_Human_Parts.detector import matting
 from ComfyUI_Human_Parts.nodes_ultra import (
     ULTRA_CLASSES,
     HumanPartsUltra,
+    LayerStyleHumanPartsUltra,
     _execution_providers,
+    lifecycle_execution_providers,
     _load_session,
     _segment_parts,
 )
@@ -126,9 +135,9 @@ class HumanPartsUltraGoldenTests(unittest.TestCase):
             "ComfyUI_Human_Parts.nodes_ultra._load_session",
             return_value=self.session,
         ):
-            rgba, mask = HumanPartsUltra().human_parts_ultra(
+            rgba, mask = HumanPartsUltra.execute(
                 **_node_arguments(image_batch, face=True, left_foot=True)
-            )
+            ).result
 
         expected = np.maximum(
             np.asarray(self.golden["parts"]["face"]),
@@ -177,17 +186,50 @@ class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
     ]
 
     def test_legacy_workflow_identifiers_are_registered(self):
-        self.assertIs(
-            NODE_CLASS_MAPPINGS["LayerMask: HumanPartsUltra"], HumanPartsUltra
+        import asyncio
+
+        extension = asyncio.run(comfy_entrypoint())
+        node_classes = asyncio.run(extension.get_node_list())
+        node_ids = [node.define_schema().node_id for node in node_classes]
+        self.assertEqual(
+            node_ids,
+            ["HumanParts", "LayerMask: HumanPartsUltra", "HumanPartsUltra"],
         )
-        self.assertIs(NODE_CLASS_MAPPINGS["HumanPartsUltra"], HumanPartsUltra)
-        self.assertIn("HumanParts", NODE_CLASS_MAPPINGS)
 
     def test_widget_order_matches_layerstyle_workflows(self):
-        required = HumanPartsUltra.INPUT_TYPES()["required"]
-        self.assertEqual(list(required), self.EXPECTED_INPUT_ORDER)
-        self.assertEqual(required["device"][0], ["cuda", "cpu", "auto"])
-        self.assertEqual(required["device"][1]["default"], "auto")
+        schema = HumanPartsUltra.define_schema()
+        self.assertEqual(
+            [item.id for item in schema.inputs], self.EXPECTED_INPUT_ORDER
+        )
+        device = next(item for item in schema.inputs if item.id == "device")
+        self.assertEqual(device.options, ["cuda", "cpu", "auto"])
+        self.assertEqual(device.default, "auto")
+
+    def test_v3_schemas_match_captured_v1_compatibility_fixture(self):
+        with SCHEMA_FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
+            fixtures = json.load(fixture_file)
+
+        classes = [HumanParts, LayerStyleHumanPartsUltra, HumanPartsUltra]
+        actual = {}
+        for node_class in classes:
+            schema = node_class.define_schema()
+            actual[schema.node_id] = {
+                "display_name": schema.display_name,
+                "category": schema.category,
+                "inputs": [item.id for item in schema.inputs],
+                "input_types": [item.io_type for item in schema.inputs],
+                "outputs": [item.io_type for item in schema.outputs],
+                "output_names": [item.id for item in schema.outputs],
+            }
+        self.assertEqual(actual, fixtures)
+
+    def test_v3_schemas_pass_comfyui_validation(self):
+        for node_class in [HumanParts, LayerStyleHumanPartsUltra, HumanPartsUltra]:
+            with self.subTest(node=node_class.__name__):
+                self.assertEqual(
+                    node_class.GET_SCHEMA().node_id,
+                    node_class.define_schema().node_id,
+                )
 
     def test_legacy_positional_widget_values_still_select_right_foot(self):
         golden = _load_golden_fixture()
@@ -207,7 +249,7 @@ class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
             "ComfyUI_Human_Parts.nodes_ultra._load_session",
             return_value=session,
         ):
-            _, mask = HumanPartsUltra().human_parts_ultra(**arguments)
+            _, mask = HumanPartsUltra.execute(**arguments).result
 
         expected = torch.tensor(
             [golden["parts"]["right_foot"]], dtype=torch.float32
@@ -236,9 +278,9 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
                 return_value=refined,
             ) as guided,
         ):
-            _, mask = HumanPartsUltra().human_parts_ultra(
+            _, mask = HumanPartsUltra.execute(
                 **_node_arguments(self.image, face=True, process_detail=True)
-            )
+            ).result
         guided.assert_called_once()
         self.assertEqual(mask.shape, (1, 4, 4))
 
@@ -254,14 +296,14 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
                 return_value=refined,
             ) as pymatting,
         ):
-            _, mask = HumanPartsUltra().human_parts_ultra(
+            _, mask = HumanPartsUltra.execute(
                 **_node_arguments(
                     self.image,
                     face=True,
                     process_detail=True,
                     detail_method="PyMatting",
                 )
-            )
+            ).result
         pymatting.assert_called_once()
         self.assertTrue(torch.equal(mask, refined))
 
@@ -283,14 +325,14 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
                         return_value=matte,
                     ) as vitmatte,
                 ):
-                    _, mask = HumanPartsUltra().human_parts_ultra(
+                    _, mask = HumanPartsUltra.execute(
                         **_node_arguments(
                             self.image,
                             face=True,
                             process_detail=True,
                             detail_method=method,
                         )
-                    )
+                    ).result
                 trimap.assert_called_once()
                 vitmatte.assert_called_once()
                 self.assertEqual(mask.shape, (1, 4, 4))
@@ -386,7 +428,6 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
                         "CPUExecutionProvider",
                     ],
                 ),
-                call(model_file.name, providers=["TensorrtExecutionProvider"]),
                 call(model_file.name, providers=["CPUExecutionProvider"]),
             ],
         )
@@ -397,6 +438,42 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
             return_value=["CPUExecutionProvider"],
         ):
             self.assertEqual(_execution_providers(), ("CPUExecutionProvider",))
+
+    def test_auto_policy_keeps_accelerated_and_cpu_fallbacks(self):
+        with patch(
+            "ComfyUI_Human_Parts.nodes_ultra.ort.get_available_providers",
+            return_value=[
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+                "TensorrtExecutionProvider",
+            ],
+        ):
+            self.assertEqual(
+                lifecycle_execution_providers("auto"),
+                (
+                    "TensorrtExecutionProvider",
+                    "CUDAExecutionProvider",
+                    "CPUExecutionProvider",
+                ),
+            )
+            self.assertEqual(
+                lifecycle_execution_providers("cuda"),
+                ("CUDAExecutionProvider", "CPUExecutionProvider"),
+            )
+
+    def test_unavailable_explicit_policy_is_actionable(self):
+        with patch(
+            "ComfyUI_Human_Parts.nodes_ultra.ort.get_available_providers",
+            return_value=["CPUExecutionProvider"],
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "CUDAExecutionProvider.*=auto"
+            ):
+                lifecycle_execution_providers("cuda")
+
+    def test_invalid_provider_policy_lists_choices(self):
+        with self.assertRaisesRegex(ValueError, "auto, tensorrt, cuda, cpu"):
+            lifecycle_execution_providers("fastest")
 
 
 class FakeMovableTensor:
@@ -462,8 +539,15 @@ class VitMatteDeviceLifecycleTests(unittest.TestCase):
         processor = FakeVitMatteProcessor()
         image = Image.new("RGB", (2, 2), "white")
         trimap = Image.new("L", (2, 2), 128)
+        comfy_module = ModuleType("comfy")
+        management_module = ModuleType("comfy.model_management")
+        comfy_module.model_management = management_module
 
         with (
+            patch.dict(
+                sys.modules,
+                {"comfy": comfy_module, "comfy.model_management": management_module},
+            ),
             patch(
                 "ComfyUI_Human_Parts.detector.matting._load_vitmatte",
                 return_value=(model, processor),
@@ -501,8 +585,15 @@ class VitMatteDeviceLifecycleTests(unittest.TestCase):
     def test_vitmatte_cleans_up_after_inference_failure(self):
         model = FakeVitMatteModel()
         processor = Mock(side_effect=RuntimeError("preprocessing failed"))
+        comfy_module = ModuleType("comfy")
+        management_module = ModuleType("comfy.model_management")
+        comfy_module.model_management = management_module
 
         with (
+            patch.dict(
+                sys.modules,
+                {"comfy": comfy_module, "comfy.model_management": management_module},
+            ),
             patch(
                 "ComfyUI_Human_Parts.detector.matting._load_vitmatte",
                 return_value=(model, processor),
