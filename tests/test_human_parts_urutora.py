@@ -728,7 +728,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
             ) as inference_session:
                 actual = _load_session(
                     model_file.name,
-                    ("TensorrtExecutionProvider", "CPUExecutionProvider"),
+                    ("CUDAExecutionProvider", "CPUExecutionProvider"),
                 )
 
         self.assertIs(actual, cpu_session)
@@ -738,7 +738,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
                 call(
                     model_file.name,
                     providers=[
-                        "TensorrtExecutionProvider",
+                        "CUDAExecutionProvider",
                         "CPUExecutionProvider",
                     ],
                 ),
@@ -765,7 +765,6 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
             self.assertEqual(
                 lifecycle_execution_providers("auto"),
                 (
-                    "TensorrtExecutionProvider",
                     "CUDAExecutionProvider",
                     "CPUExecutionProvider",
                 ),
@@ -786,7 +785,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
                 lifecycle_execution_providers("cuda")
 
     def test_invalid_provider_policy_lists_choices(self):
-        with self.assertRaisesRegex(ValueError, "auto, tensorrt, cuda, cpu"):
+        with self.assertRaisesRegex(ValueError, "auto, cuda, cpu"):
             lifecycle_execution_providers("fastest")
 
 

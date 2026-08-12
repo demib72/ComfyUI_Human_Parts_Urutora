@@ -4,7 +4,7 @@ description = "Detect human parts using the DeepLabV3+ ResNet50 model from Keras
 version = "2.0.0"
 license = { file = "LICENSE" }
 dependencies = [
-    "onnxruntime",
+    "onnxruntime-gpu",
     "numpy",
     "Pillow>=10.1.0",
     "tqdm",

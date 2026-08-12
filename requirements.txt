@@ -1,4 +1,4 @@
-onnxruntime
+onnxruntime-gpu
 numpy
 Pillow>=10.1.0
 tqdm

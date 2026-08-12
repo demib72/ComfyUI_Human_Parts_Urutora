@@ -14,12 +14,10 @@ from .utils import model_url
 ONNX_PROVIDER_POLICY_ENV = "COMFYUI_HUMAN_PARTS_URUTORA_ONNX_PROVIDER"
 ONNX_PROVIDER_POLICIES = {
     "auto": None,
-    "tensorrt": "TensorrtExecutionProvider",
     "cuda": "CUDAExecutionProvider",
     "cpu": "CPUExecutionProvider",
 }
 ONNX_PROVIDER_PRIORITY = (
-    "TensorrtExecutionProvider",
     "CUDAExecutionProvider",
     "CPUExecutionProvider",
 )

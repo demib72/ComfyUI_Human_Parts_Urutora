@@ -133,14 +133,14 @@ ONNX segmentation models are installed with `python install.py`. Existing
 installations should run it again to download the face parser; if it is absent,
 the node logs a warning and uses the legacy geometric eye estimate.
 
-The port fixes the original upstream node's left-foot selection bug. ONNX uses an
-explicit `auto` provider policy: it tries advertised TensorRT, CUDA, and CPU
-providers in that order, and retries with progressively safer provider chains
-if an accelerated provider cannot initialize. Both Human Parts Urutora nodes share this
-behavior.
+The port fixes the original upstream node's left-foot selection bug. ONNX uses
+the `onnxruntime-gpu` package with an explicit `auto` provider policy: it tries
+advertised CUDA and CPU providers in that order, and retries with CPU if CUDA
+cannot initialize. TensorRT is neither installed nor selected. Both Human Parts
+Urutora nodes share this behavior.
 
 To choose a starting provider explicitly, set
-`COMFYUI_HUMAN_PARTS_URUTORA_ONNX_PROVIDER` to `tensorrt`, `cuda`, or `cpu` before
+`COMFYUI_HUMAN_PARTS_URUTORA_ONNX_PROVIDER` to `cuda` or `cpu` before
 starting ComfyUI. The default is `auto`; explicit accelerated policies still
 retain lower-priority providers as execution fallbacks. If an explicitly
 selected provider is not installed, the node reports the available providers
