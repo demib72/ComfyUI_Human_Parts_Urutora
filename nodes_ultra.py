@@ -357,13 +357,17 @@ class HumanPartsUltra(io.ComfyNode):
             if process_detail:
                 detail_range = detail_erode + detail_dilate
                 image_batch = image_item.unsqueeze(0)
-                # Small facial masks are especially vulnerable to a matting
-                # model introducing confident alpha elsewhere in the image.
+                # Small anatomical masks are especially vulnerable to a
+                # matting model erasing the seed or introducing confident
+                # alpha elsewhere.
                 # Retain the trimap support so refinement can improve edges but
                 # cannot create disconnected anatomy far from the seed mask.
                 refinement_trimap = (
                     generate_vitmatte_trimap(mask, detail_erode, detail_dilate)
-                    if eyes
+                    if any(
+                        selections.get(name, False)
+                        for name in ULTRA_ANATOMICAL_PARTS
+                    )
                     else None
                 )
                 if detail_method == "GuidedFilter":
@@ -397,8 +401,13 @@ class HumanPartsUltra(io.ComfyNode):
                         pil_to_mask(matte), black_point, white_point
                     )
                 if refinement_trimap is not None:
-                    support = pil_to_mask(refinement_trimap) > 0
+                    refinement_constraints = pil_to_mask(refinement_trimap)
+                    support = refinement_constraints > 0
                     mask = torch.where(support, mask, torch.zeros_like(mask))
+                    known_foreground = refinement_constraints == 1
+                    mask = torch.where(
+                        known_foreground, torch.ones_like(mask), mask
+                    )
 
             mask = mask.float().clamp(0.0, 1.0)
             mask_image = mask_to_pil(mask)

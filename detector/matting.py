@@ -192,7 +192,30 @@ def generate_vitmatte_trimap(
     dilate_kernel = np.ones(
         (max(1, dilate_kernel_size), max(1, dilate_kernel_size)), np.uint8
     )
+    foreground = (mask_array == 255).astype(np.uint8)
     eroded = cv2.erode(mask_array, erode_kernel, iterations=5)
+
+    # A fixed five-pass erosion can completely remove small, valid parts such
+    # as eyes in an upper- or full-body image. VITMatte then receives no known
+    # foreground and commonly returns an empty matte. Restore a conservative
+    # interior core for every component that the requested erosion erased.
+    component_count, component_labels = cv2.connectedComponents(foreground, 8)
+    eroded_foreground = eroded == 255
+    for component_index in range(1, component_count):
+        component = component_labels == component_index
+        if eroded_foreground[component].any():
+            continue
+
+        distance = cv2.distanceTransform(
+            component.astype(np.uint8), cv2.DIST_L2, 5
+        )
+        maximum_distance = float(distance.max())
+        if maximum_distance <= 0.0:
+            continue
+        # Keep the deepest half of the component. This supplies a reliable
+        # foreground seed without declaring its uncertain boundary opaque.
+        eroded[distance >= maximum_distance * 0.5] = 255
+
     dilated = cv2.dilate(mask_array, dilate_kernel, iterations=5)
 
     trimap = np.zeros_like(mask_array)

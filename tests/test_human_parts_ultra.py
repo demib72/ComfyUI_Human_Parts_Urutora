@@ -511,6 +511,38 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
         self.assertEqual(mask[0, 1, 1].item(), 1.0)
         self.assertEqual(mask.shape, (1, 4, 4))
 
+    def test_eye_refinement_cannot_erase_known_foreground(self):
+        face_map = np.zeros((4, 4), dtype=np.int64)
+        face_session = FaceParsingSession(face_map)
+        refined = torch.zeros((1, 4, 4), dtype=torch.float32)
+        trimap = Image.fromarray(
+            np.asarray(
+                [[0, 0, 0, 0], [0, 255, 128, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=np.uint8,
+            ),
+            mode="L",
+        )
+        with (
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra._load_session",
+                side_effect=[self.session, face_session],
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.guided_filter_alpha",
+                return_value=refined,
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes_ultra.generate_vitmatte_trimap",
+                return_value=trimap,
+            ),
+        ):
+            _, mask = HumanPartsUltra.execute(
+                **_node_arguments(self.image, eyes=True, process_detail=True)
+            ).result
+
+        self.assertEqual(mask[0, 1, 1].item(), 1.0)
+        self.assertEqual(mask[0, 1, 2].item(), 0.0)
+
     def test_pymatting_refinement(self):
         refined = torch.full((1, 4, 4), 0.25, dtype=torch.float32)
         with (
@@ -563,6 +595,32 @@ class HumanPartsUltraRefinementDispatchTests(unittest.TestCase):
                 trimap.assert_called_once()
                 vitmatte.assert_called_once()
                 self.assertEqual(mask.shape, (1, 4, 4))
+
+
+class VitMatteTrimapTests(unittest.TestCase):
+    def test_small_components_retain_known_foreground(self):
+        mask = torch.zeros((1, 80, 120), dtype=torch.float32)
+        mask[:, 20:27, 20:38] = 1.0
+        mask[:, 20:27, 82:100] = 1.0
+
+        trimap = np.asarray(
+            matting.generate_vitmatte_trimap(mask, 8, 6), dtype=np.uint8
+        )
+
+        self.assertTrue((trimap[20:27, 20:38] == 255).any())
+        self.assertTrue((trimap[20:27, 82:100] == 255).any())
+        self.assertTrue((trimap[20:27, 38:82] == 0).any())
+
+    def test_large_component_keeps_requested_erosion(self):
+        mask = torch.zeros((1, 100, 100), dtype=torch.float32)
+        mask[:, 10:90, 10:90] = 1.0
+
+        trimap = np.asarray(
+            matting.generate_vitmatte_trimap(mask, 3, 3), dtype=np.uint8
+        )
+
+        self.assertEqual(trimap[10, 10], 128)
+        self.assertEqual(trimap[50, 50], 255)
 
 
 class TorchGuidedFilterTests(unittest.TestCase):
