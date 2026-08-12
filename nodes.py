@@ -8,7 +8,8 @@ from .utils import model_path
 
 class HumanParts(io.ComfyNode):
     """
-    This node is used to get a mask of the human parts in the image.
+    Generate a mask of selected human parts. This legacy workflow identifier is
+    retained for compatibility; new workflows may prefer HumanPartsUltra.
 
     The model used is DeepLabV3+ with a ResNet50 backbone trained
     by Keras-io, converted to ONNX format.
@@ -46,7 +47,7 @@ class HumanParts(io.ComfyNode):
     @classmethod
     def execute(cls, image: torch.Tensor, **kwargs) -> io.NodeOutput:
         """
-        Return a Tensor with the mask of the human parts in the image.
+        Return standard ComfyUI float32 masks shaped [B,H,W].
         """
 
         model = load_session(model_path, execution_providers())

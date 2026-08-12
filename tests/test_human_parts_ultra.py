@@ -26,6 +26,7 @@ if COMFYUI_ROOT.is_dir():
 
 from ComfyUI_Human_Parts import comfy_entrypoint
 from ComfyUI_Human_Parts.nodes import HumanParts
+from ComfyUI_Human_Parts.detector.human_parts import get_mask
 from ComfyUI_Human_Parts.detector import matting
 from ComfyUI_Human_Parts.nodes_ultra import (
     ULTRA_CLASSES,
@@ -57,6 +58,16 @@ class GoldenSession:
         return [logits]
 
 
+class RecordingSession(GoldenSession):
+    def __init__(self, class_map: np.ndarray):
+        super().__init__(class_map)
+        self.inputs = []
+
+    def run(self, output_names, inputs):
+        self.inputs.append(next(iter(inputs.values())))
+        return super().run(output_names, inputs)
+
+
 def _load_golden_fixture() -> dict:
     with FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
         return json.load(fixture_file)
@@ -77,6 +88,51 @@ def _node_arguments(image: torch.Tensor, **overrides) -> dict:
     }
     arguments.update(overrides)
     return arguments
+
+
+class LegacyHumanPartsTests(unittest.TestCase):
+    def test_batch_returns_standard_float32_comfyui_masks(self):
+        class_map = np.asarray([[13, 0], [0, 13]], dtype=np.int64)
+        session = RecordingSession(class_map)
+        first = torch.zeros((3, 5, 3), dtype=torch.float32)
+        second = torch.ones((3, 5, 3), dtype=torch.float32)
+
+        mask, score = get_mask(
+            torch.stack((first, second)), session, rotation=0, face=True
+        )
+
+        self.assertEqual(mask.shape, (2, 3, 5))
+        self.assertEqual(mask.dtype, torch.float32)
+        self.assertEqual(set(mask.unique().tolist()), {0.0, 1.0})
+        self.assertEqual(len(session.inputs), 2)
+        self.assertTrue(
+            all(
+                value.shape == (1, 512, 512, 3)
+                for value in session.inputs
+            )
+        )
+        self.assertGreater(score, 0)
+
+    def test_execute_uses_the_shared_session_loader(self):
+        image = torch.zeros((1, 3, 5, 3), dtype=torch.float32)
+        session = GoldenSession(np.zeros((2, 2), dtype=np.int64))
+
+        with (
+            patch(
+                "ComfyUI_Human_Parts.nodes.execution_providers",
+                return_value=("CPUExecutionProvider",),
+            ),
+            patch(
+                "ComfyUI_Human_Parts.nodes.load_session", return_value=session
+            ) as load,
+        ):
+            first = HumanParts.execute(image, face=True).result[0]
+            second = HumanParts.execute(image, face=True).result[0]
+
+        self.assertEqual(first.shape, (1, 3, 5))
+        self.assertEqual(second.dtype, torch.float32)
+        self.assertEqual(load.call_count, 2)
+        self.assertEqual(load.call_args_list[0], load.call_args_list[1])
 
 
 class HumanPartsUltraGoldenTests(unittest.TestCase):
@@ -398,6 +454,24 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
                     RuntimeError, "CPUExecutionProvider.*invalid protobuf"
                 ):
                     _load_session(model_file.name, ("CPUExecutionProvider",))
+
+    def test_identical_requests_reuse_one_inference_session(self):
+        session = object()
+        providers = ("CPUExecutionProvider",)
+
+        with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
+            with patch(
+                "ComfyUI_Human_Parts.onnx_lifecycle.ort.InferenceSession",
+                return_value=session,
+            ) as inference_session:
+                first = _load_session(model_file.name, providers)
+                second = _load_session(model_file.name, providers)
+
+        self.assertIs(first, session)
+        self.assertIs(second, session)
+        inference_session.assert_called_once_with(
+            model_file.name, providers=["CPUExecutionProvider"]
+        )
 
     def test_provider_initialization_falls_back_to_cpu(self):
         cpu_session = object()

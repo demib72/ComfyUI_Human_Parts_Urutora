@@ -123,52 +123,53 @@ def get_mask(
     and the rotation does not help.
     """
 
-    image = image.squeeze(0)
-    image_np = image.numpy() * 255
-
-    pil_image = Image.fromarray(image_np.astype(np.uint8))
-    original_size = pil_image.size  # to resize the mask later
-    # resize to 512x512 as the model expects
-    pil_image = pil_image.resize((512, 512))
-    center = (256, 256)
-
-    if rotation != 0:
-        pil_image = pil_image.rotate(rotation, center=center)
-
-    # normalize the image
-    image_np = np.array(pil_image).astype(np.float32) / 127.5 - 1
-    image_np = np.expand_dims(image_np, axis=0)
-
-    # use the onnx model to get the mask
     input_name = model.get_inputs()[0].name
     output_name = model.get_outputs()[0].name
-    result = model.run([output_name], {input_name: image_np})
-    result = np.array(result[0]).argmax(axis=3).squeeze(0)
+    selected_indices = [
+        class_index
+        for class_name, enabled in kwargs.items()
+        if enabled and (class_index := get_class_index(class_name)) != -1
+    ]
 
-    score: int = 0
+    if image.ndim == 3:
+        image = image.unsqueeze(0)
+    if image.ndim != 4:
+        raise ValueError(
+            "HumanParts expects an IMAGE tensor shaped [B,H,W,C]; "
+            f"received {tuple(image.shape)}."
+        )
 
-    mask = np.zeros_like(result)
-    for class_name, enabled in kwargs.items():
-        class_index = get_class_index(class_name)
-        if enabled and class_index != -1:
-            detected = result == class_index
-            mask[detected] = 255
-            score += mask.sum()
+    masks: list[torch.Tensor] = []
+    score = 0
+    center = (256, 256)
 
-    # back to the original size
-    mask_image = Image.fromarray(mask.astype(np.uint8), mode="L")
-    if rotation != 0:
-        mask_image = mask_image.rotate(-rotation, center=center)
+    # The ONNX export has a fixed batch dimension, so process ComfyUI batches
+    # one image at a time and collect standard [H,W] masks.
+    for batch_image in image:
+        image_np = batch_image.detach().cpu().numpy() * 255.0
+        pil_image = Image.fromarray(image_np.astype(np.uint8)).convert("RGB")
+        original_size = pil_image.size
+        pil_image = pil_image.resize((512, 512), Image.Resampling.BILINEAR)
 
-    mask_image = mask_image.resize(original_size)
+        if rotation != 0:
+            pil_image = pil_image.rotate(rotation, center=center)
 
-    # and back to numpy...
-    mask = np.array(mask_image).astype(np.float32) / 255
+        model_input = np.asarray(pil_image).astype(np.float32) / 127.5 - 1.0
+        model_input = np.expand_dims(model_input, axis=0)
+        result = model.run([output_name], {input_name: model_input})[0]
+        class_map = np.asarray(result).argmax(axis=3).squeeze(0)
 
-    # add 2 dimensions to match the expected output
-    mask = np.expand_dims(mask, axis=0)
-    mask = np.expand_dims(mask, axis=0)
-    # ensure to return a "binary mask_image"
+        if selected_indices:
+            mask = np.isin(class_map, selected_indices).astype(np.uint8) * 255
+        else:
+            mask = np.zeros_like(class_map, dtype=np.uint8)
+        score += int(np.count_nonzero(mask))
 
-    del image_np, result  # free up memory, maybe not necessary
-    return (torch.from_numpy(mask.astype(np.uint8)), score)
+        mask_image = Image.fromarray(mask, mode="L")
+        if rotation != 0:
+            mask_image = mask_image.rotate(-rotation, center=center)
+        mask_image = mask_image.resize(original_size, Image.Resampling.NEAREST)
+        mask_array = np.asarray(mask_image).astype(np.float32) / 255.0
+        masks.append(torch.from_numpy(mask_array.copy()))
+
+    return torch.stack(masks, dim=0).to(dtype=torch.float32), score

@@ -62,6 +62,12 @@ this repository when ComfyUI is installed beside it:
 Then, restart ComfyUI, refresh the UI, and you may find the "Human Parts
 Urutora mask generator" node.
 
+The original `HumanParts` node identifier is retained for existing workflows.
+It supports image batches and returns standard ComfyUI `[B,H,W]` float32 masks.
+Its ONNX session is shared with Human Parts Ultra and reused between executions.
+New workflows may prefer Human Parts Ultra for its additional refinement and
+RGBA output options.
+
 ![The node](./images/node.png)
 
 ## Human Parts Ultra
