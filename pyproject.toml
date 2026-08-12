@@ -1,9 +1,18 @@
 [project]
 name = "comfyui_human_parts"
 description = "Detect human parts using the DeepLabV3+ ResNet50 model from Keras-io. You can extract hair, arms, legs, and other parts with ease and with small memory usage."
-version = "1.0.3"
+version = "1.1.0"
 license = { file = "LICENSE" }
-dependencies = ["onnxruntime", "numpy", "Pillow"]
+dependencies = [
+    "onnxruntime",
+    "numpy",
+    "Pillow>=10.1.0",
+    "tqdm",
+    "opencv-contrib-python",
+    "pymatting",
+    "transformers>=4.45.0",
+    "huggingface-hub>=0.23.4",
+]
 
 [project.urls]
 Repository = "https://github.com/metal3d/ComfyUI_Human_Parts"

@@ -52,3 +52,27 @@ python install.py
 Then, restart ComfyUI, refresh the UI, and you may find the "Human Parts mask generator" node.
 
 ![The node](./images/node.png)
+
+## Human Parts Ultra
+
+This fork also includes a standalone port of LayerStyle Advance's
+`LayerMask: HumanPartsUltra` node. Existing workflows using that exact node
+identifier can load without installing the complete LayerStyle Advance node
+suite.
+
+In addition to the ONNX human-parts segmentation, Human Parts Ultra provides:
+
+- Batch processing.
+- An RGBA image output whose alpha channel contains the selected mask.
+- A standard ComfyUI `MASK` output.
+- Optional VITMatte, PyMatting, or Guided Filter edge refinement.
+- CPU or CUDA selection for VITMatte.
+
+VITMatte models are downloaded from Hugging Face into
+`ComfyUI/models/vitmatte` on first use. Select `VITMatte(local)` to prohibit a
+model download and use files already present in that directory. The original
+ONNX segmentation model is still installed with `python install.py`.
+
+The port fixes the original Ultra node's left-foot selection bug and chooses
+only ONNX Runtime execution providers available in the current installation.
+See [THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES) for attribution and licensing.
