@@ -24,15 +24,15 @@ COMFYUI_ROOT = PROJECT_PARENT / "ComfyUI"
 if COMFYUI_ROOT.is_dir():
     sys.path.insert(0, str(COMFYUI_ROOT))
 
-from Human_Parts_Urutora import comfy_entrypoint
-from Human_Parts_Urutora.nodes import HumanPartsUrutoraMaskGenerator
-from Human_Parts_Urutora.detector.human_parts import get_mask
-from Human_Parts_Urutora.detector import matting
-from Human_Parts_Urutora.detector.face_parsing import (
+from ComfyUI_Human_Parts_Urutora import comfy_entrypoint
+from ComfyUI_Human_Parts_Urutora.nodes import HumanPartsUrutoraMaskGenerator
+from ComfyUI_Human_Parts_Urutora.detector.human_parts import get_mask
+from ComfyUI_Human_Parts_Urutora.detector import matting
+from ComfyUI_Human_Parts_Urutora.detector.face_parsing import (
     FACE_PARSING_CLASSES,
     segment_face_parts,
 )
-from Human_Parts_Urutora.nodes_urutora import (
+from ComfyUI_Human_Parts_Urutora.nodes_urutora import (
     URUTORA_ANATOMICAL_PARTS,
     URUTORA_CLASSES,
     HumanPartsUrutora,
@@ -42,7 +42,7 @@ from Human_Parts_Urutora.nodes_urutora import (
     _load_session,
     _segment_parts,
 )
-from Human_Parts_Urutora.utils import _fallback_models_dir
+from ComfyUI_Human_Parts_Urutora.utils import _fallback_models_dir
 
 
 class GoldenSession:
@@ -168,11 +168,11 @@ class HumanPartsUrutoraMaskGeneratorTests(unittest.TestCase):
 
         with (
             patch(
-                "Human_Parts_Urutora.nodes.execution_providers",
+                "ComfyUI_Human_Parts_Urutora.nodes.execution_providers",
                 return_value=("CPUExecutionProvider",),
             ),
             patch(
-                "Human_Parts_Urutora.nodes.load_session", return_value=session
+                "ComfyUI_Human_Parts_Urutora.nodes.load_session", return_value=session
             ) as load,
         ):
             first = HumanPartsUrutoraMaskGenerator.execute(image, face=True).result[0]
@@ -237,7 +237,7 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
     def test_multiple_image_batches_and_rgba_alpha_match_mask_exactly(self):
         image_batch = torch.cat((self.image_tensor, self.image_tensor), dim=0)
         with patch(
-            "Human_Parts_Urutora.nodes_urutora._load_session",
+            "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
             return_value=self.session,
         ):
             rgba, mask = HumanPartsUrutora.execute(
@@ -440,7 +440,7 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         arguments["image"] = image
 
         with patch(
-            "Human_Parts_Urutora.nodes_urutora._load_session",
+            "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
             return_value=session,
         ):
             _, mask = HumanPartsUrutora.execute(**arguments).result
@@ -464,11 +464,11 @@ class HumanPartsUrutoraRefinementDispatchTests(unittest.TestCase):
         refined = torch.full((1, 4, 4), 0.5, dtype=torch.float32)
         with (
             patch(
-                "Human_Parts_Urutora.nodes_urutora._load_session",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
                 return_value=self.session,
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
                 return_value=refined,
             ) as guided,
         ):
@@ -491,15 +491,15 @@ class HumanPartsUrutoraRefinementDispatchTests(unittest.TestCase):
         )
         with (
             patch(
-                "Human_Parts_Urutora.nodes_urutora._load_session",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
                 side_effect=[self.session, face_session],
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
                 return_value=refined,
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
                 return_value=trimap,
             ),
         ):
@@ -524,15 +524,15 @@ class HumanPartsUrutoraRefinementDispatchTests(unittest.TestCase):
         )
         with (
             patch(
-                "Human_Parts_Urutora.nodes_urutora._load_session",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
                 side_effect=[self.session, face_session],
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.guided_filter_alpha",
                 return_value=refined,
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
                 return_value=trimap,
             ),
         ):
@@ -547,11 +547,11 @@ class HumanPartsUrutoraRefinementDispatchTests(unittest.TestCase):
         refined = torch.full((1, 4, 4), 0.25, dtype=torch.float32)
         with (
             patch(
-                "Human_Parts_Urutora.nodes_urutora._load_session",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
                 return_value=self.session,
             ),
             patch(
-                "Human_Parts_Urutora.nodes_urutora.pymatting_alpha",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.pymatting_alpha",
                 return_value=refined,
             ) as pymatting,
         ):
@@ -572,15 +572,15 @@ class HumanPartsUrutoraRefinementDispatchTests(unittest.TestCase):
                 matte = Image.new("L", (4, 4), 128)
                 with (
                     patch(
-                        "Human_Parts_Urutora.nodes_urutora._load_session",
+                        "ComfyUI_Human_Parts_Urutora.nodes_urutora._load_session",
                         return_value=self.session,
                     ),
                     patch(
-                        "Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
+                        "ComfyUI_Human_Parts_Urutora.nodes_urutora.generate_vitmatte_trimap",
                         return_value=matte,
                     ) as trimap,
                     patch(
-                        "Human_Parts_Urutora.nodes_urutora.generate_vitmatte",
+                        "ComfyUI_Human_Parts_Urutora.nodes_urutora.generate_vitmatte",
                         return_value=matte,
                     ) as vitmatte,
                 ):
@@ -676,7 +676,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
     def test_corrupt_model_reports_provider_attempts(self):
         with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
             with patch(
-                "Human_Parts_Urutora.nodes_urutora.ort.InferenceSession",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.ort.InferenceSession",
                 side_effect=ValueError("invalid protobuf"),
             ):
                 with self.assertRaisesRegex(
@@ -690,7 +690,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
             with patch(
-                "Human_Parts_Urutora.onnx_lifecycle.ort.InferenceSession",
+                "ComfyUI_Human_Parts_Urutora.onnx_lifecycle.ort.InferenceSession",
                 return_value=session,
             ) as inference_session:
                 first = _load_session(model_file.name, providers)
@@ -712,7 +712,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
             with patch(
-                "Human_Parts_Urutora.nodes_urutora.ort.InferenceSession",
+                "ComfyUI_Human_Parts_Urutora.nodes_urutora.ort.InferenceSession",
                 side_effect=create_session,
             ) as inference_session:
                 actual = _load_session(
@@ -737,14 +737,14 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
 
     def test_provider_preference_only_contains_available_providers(self):
         with patch(
-            "Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
+            "ComfyUI_Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
             return_value=["CPUExecutionProvider"],
         ):
             self.assertEqual(_execution_providers(), ("CPUExecutionProvider",))
 
     def test_auto_policy_keeps_accelerated_and_cpu_fallbacks(self):
         with patch(
-            "Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
+            "ComfyUI_Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
             return_value=[
                 "CUDAExecutionProvider",
                 "CPUExecutionProvider",
@@ -766,7 +766,7 @@ class OnnxSessionLifecycleTests(unittest.TestCase):
 
     def test_unavailable_explicit_policy_is_actionable(self):
         with patch(
-            "Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
+            "ComfyUI_Human_Parts_Urutora.nodes_urutora.ort.get_available_providers",
             return_value=["CPUExecutionProvider"],
         ):
             with self.assertRaisesRegex(
@@ -852,11 +852,11 @@ class VitMatteDeviceLifecycleTests(unittest.TestCase):
                 {"comfy": comfy_module, "comfy.model_management": management_module},
             ),
             patch(
-                "Human_Parts_Urutora.detector.matting._load_vitmatte",
+                "ComfyUI_Human_Parts_Urutora.detector.matting._load_vitmatte",
                 return_value=(model, processor),
             ) as loader,
             patch(
-                "Human_Parts_Urutora.detector.matting._resolve_torch_device",
+                "ComfyUI_Human_Parts_Urutora.detector.matting._resolve_torch_device",
                 return_value=torch.device("cuda"),
             ),
             patch("torch.cuda.is_available", return_value=True),
@@ -898,11 +898,11 @@ class VitMatteDeviceLifecycleTests(unittest.TestCase):
                 {"comfy": comfy_module, "comfy.model_management": management_module},
             ),
             patch(
-                "Human_Parts_Urutora.detector.matting._load_vitmatte",
+                "ComfyUI_Human_Parts_Urutora.detector.matting._load_vitmatte",
                 return_value=(model, processor),
             ),
             patch(
-                "Human_Parts_Urutora.detector.matting._resolve_torch_device",
+                "ComfyUI_Human_Parts_Urutora.detector.matting._resolve_torch_device",
                 return_value=torch.device("cuda"),
             ),
             patch("torch.cuda.is_available", return_value=True),
@@ -929,7 +929,7 @@ class VitMatteDeviceLifecycleTests(unittest.TestCase):
         with (
             patch.dict(sys.modules, {"transformers": transformers_module}),
             patch(
-                "Human_Parts_Urutora.detector.matting.os.path.isdir",
+                "ComfyUI_Human_Parts_Urutora.detector.matting.os.path.isdir",
                 return_value=False,
             ),
             self.assertRaisesRegex(FileNotFoundError, "VITMatte model not found"),

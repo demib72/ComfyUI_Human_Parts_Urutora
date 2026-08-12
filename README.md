@@ -39,9 +39,8 @@ I strongly recommend to use ComfyUI-Manager to install the node. It will install
 
 # then...
 cd /path/to/your/ComfyUI/custom_nodes
-git clone https://github.com/metal3d/ComfyUI_Human_Parts.git
-mv ComfyUI_Human_Parts Human_Parts_Urutora
-cd Human_Parts_Urutora
+git clone https://github.com/demib72/ComfyUI_Human_Parts_Urutora.git
+cd ComfyUI_Human_Parts_Urutora
 pip install -r requirements.txt
 # or
 python -m pip install -r requirements.txt
@@ -55,8 +54,7 @@ For the common `/workspace/ComfyUI` layout:
 
 ```bash
 cd /workspace/ComfyUI/custom_nodes
-mv ComfyUI_Human_Parts Human_Parts_Urutora 2>/dev/null || true
-cd Human_Parts_Urutora
+cd ComfyUI_Human_Parts_Urutora
 /workspace/ComfyUI/venv/bin/python -m pip install -r requirements.txt
 /workspace/ComfyUI/venv/bin/python install.py
 ```
