@@ -50,11 +50,14 @@ ULTRA_CLASSES = {
 
 ULTRA_INPUT_ORDER = (
     "face",
+    "eyes",
     "hair",
     "glasses",
     "top_clothes",
     "bottom_clothes",
     "torso_skin",
+    "breasts",
+    "groin",
     "left_arm",
     "right_arm",
     "left_leg",
@@ -62,6 +65,116 @@ ULTRA_INPUT_ORDER = (
     "left_foot",
     "right_foot",
 )
+
+# These regions are not native classes in the 22-class CCIHP model. They are
+# estimated from the model's face, torso-skin, and leg geometry instead.
+ULTRA_ANATOMICAL_PARTS = ("eyes", "breasts", "groin")
+ULTRA_ANATOMICAL_TOOLTIPS = {
+    "eyes": "Estimate both eye regions within the detected face.",
+    "breasts": "Estimate both breast regions within detected torso skin.",
+    "groin": "Estimate the pubic region from detected torso skin and upper legs.",
+}
+ULTRA_ANATOMICAL_DISPLAY_NAMES = {"groin": "female groin"}
+
+
+def _ellipse_mask(
+    shape: tuple[int, int],
+    center_x: float,
+    center_y: float,
+    radius_x: float,
+    radius_y: float,
+) -> np.ndarray:
+    """Return a boolean ellipse without introducing another image dependency."""
+    height, width = shape
+    if radius_x <= 0 or radius_y <= 0:
+        return np.zeros(shape, dtype=bool)
+    yy, xx = np.ogrid[:height, :width]
+    return (
+        ((xx - center_x) / radius_x) ** 2
+        + ((yy - center_y) / radius_y) ** 2
+        <= 1.0
+    )
+
+
+def _mask_bounds(mask: np.ndarray) -> tuple[int, int, int, int] | None:
+    rows, columns = np.nonzero(mask)
+    if not len(rows):
+        return None
+    return columns.min(), rows.min(), columns.max() + 1, rows.max() + 1
+
+
+def _anatomical_mask(class_map: np.ndarray, part_name: str) -> np.ndarray:
+    """Estimate a smaller anatomical region from the coarse CCIHP classes.
+
+    The estimates deliberately remain inside the relevant semantic region, so
+    they do not turn nearby background into an inpainting mask.
+    """
+    result = np.zeros(class_map.shape, dtype=bool)
+
+    if part_name == "eyes":
+        source = class_map == ULTRA_CLASSES["face"]
+        bounds = _mask_bounds(source)
+        if bounds is None:
+            return result
+        x0, y0, x1, y1 = bounds
+        width, height = x1 - x0, y1 - y0
+        for horizontal_position in (0.32, 0.68):
+            result |= _ellipse_mask(
+                class_map.shape,
+                x0 + horizontal_position * width,
+                y0 + 0.43 * height,
+                max(1.0, 0.16 * width),
+                max(1.0, 0.10 * height),
+            )
+        return result & source
+
+    if part_name == "breasts":
+        source = class_map == ULTRA_CLASSES["torso_skin"]
+        bounds = _mask_bounds(source)
+        if bounds is None:
+            return result
+        x0, y0, x1, y1 = bounds
+        width, height = x1 - x0, y1 - y0
+        for horizontal_position in (0.32, 0.68):
+            result |= _ellipse_mask(
+                class_map.shape,
+                x0 + horizontal_position * width,
+                y0 + 0.38 * height,
+                max(1.0, 0.24 * width),
+                max(1.0, 0.18 * height),
+            )
+        return result & source
+
+    if part_name == "groin":
+        torso = class_map == ULTRA_CLASSES["torso_skin"]
+        legs = np.isin(
+            class_map,
+            [ULTRA_CLASSES["left_leg"], ULTRA_CLASSES["right_leg"]],
+        )
+        source = torso | legs
+        bounds = _mask_bounds(source)
+        leg_bounds = _mask_bounds(legs)
+        if bounds is None:
+            return result
+        x0, y0, x1, y1 = bounds
+        width, height = x1 - x0, y1 - y0
+        # The top of the detected legs is a more stable pelvis anchor than a
+        # fixed fraction of a full-body box. Fall back to the lower torso.
+        center_y = (
+            leg_bounds[1] + 0.04 * height
+            if leg_bounds is not None
+            else y0 + 0.88 * height
+        )
+        result = _ellipse_mask(
+            class_map.shape,
+            x0 + 0.5 * width,
+            center_y,
+            max(1.0, 0.16 * width),
+            max(1.0, 0.09 * height),
+        )
+        return result & source
+
+    return result
 
 
 def _segment_parts(
@@ -89,6 +202,10 @@ def _segment_parts(
     else:
         mask = np.zeros_like(class_map, dtype=np.uint8)
 
+    for part_name in ULTRA_ANATOMICAL_PARTS:
+        if selections.get(part_name, False):
+            mask[_anatomical_mask(class_map, part_name)] = 255
+
     mask_image = Image.fromarray(mask, mode="L").resize(
         original_size, Image.Resampling.NEAREST
     )
@@ -109,7 +226,12 @@ class HumanPartsUltra(io.ComfyNode):
             inputs=[
                 io.Image.Input("image"),
                 *[
-                    io.Boolean.Input(name, default=False)
+                    io.Boolean.Input(
+                        name,
+                        default=False,
+                        display_name=ULTRA_ANATOMICAL_DISPLAY_NAMES.get(name),
+                        tooltip=ULTRA_ANATOMICAL_TOOLTIPS.get(name),
+                    )
                     for name in ULTRA_INPUT_ORDER
                 ],
                 io.Combo.Input("detail_method", options=methods),
@@ -171,6 +293,9 @@ class HumanPartsUltra(io.ComfyNode):
         process_detail: bool,
         device: str,
         max_megapixels: float,
+        eyes: bool = False,
+        breasts: bool = False,
+        groin: bool = False,
     ):
         model = _load_session(model_path, _execution_providers())
         selections = {
@@ -186,6 +311,9 @@ class HumanPartsUltra(io.ComfyNode):
             "right_leg": right_leg,
             "left_foot": left_foot,
             "right_foot": right_foot,
+            "eyes": eyes,
+            "breasts": breasts,
+            "groin": groin,
         }
 
         output_images = []

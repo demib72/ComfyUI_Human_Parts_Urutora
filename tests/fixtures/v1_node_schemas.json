@@ -21,8 +21,8 @@
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [
-      "image", "face", "hair", "glasses", "top_clothes", "bottom_clothes",
-      "torso_skin", "left_arm", "right_arm", "left_leg",
+      "image", "face", "eyes", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "torso_skin", "breasts", "groin", "left_arm", "right_arm", "left_leg",
       "right_leg", "left_foot", "right_foot", "detail_method",
       "detail_erode", "detail_dilate", "black_point", "white_point",
       "process_detail", "device", "max_megapixels"
@@ -30,8 +30,8 @@
     "input_types": [
       "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
-      "BOOLEAN", "COMBO", "INT", "INT", "FLOAT", "FLOAT", "BOOLEAN",
-      "COMBO", "FLOAT"
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "COMBO", "INT", "INT",
+      "FLOAT", "FLOAT", "BOOLEAN", "COMBO", "FLOAT"
     ],
     "outputs": ["IMAGE", "MASK"],
     "output_names": ["image", "mask"]
@@ -40,8 +40,8 @@
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [
-      "image", "face", "hair", "glasses", "top_clothes", "bottom_clothes",
-      "torso_skin", "left_arm", "right_arm", "left_leg",
+      "image", "face", "eyes", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "torso_skin", "breasts", "groin", "left_arm", "right_arm", "left_leg",
       "right_leg", "left_foot", "right_foot", "detail_method",
       "detail_erode", "detail_dilate", "black_point", "white_point",
       "process_detail", "device", "max_megapixels"
@@ -49,8 +49,8 @@
     "input_types": [
       "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
-      "BOOLEAN", "COMBO", "INT", "INT", "FLOAT", "FLOAT", "BOOLEAN",
-      "COMBO", "FLOAT"
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "COMBO", "INT", "INT",
+      "FLOAT", "FLOAT", "BOOLEAN", "COMBO", "FLOAT"
     ],
     "outputs": ["IMAGE", "MASK"],
     "output_names": ["image", "mask"]

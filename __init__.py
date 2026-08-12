@@ -4,6 +4,7 @@ from .nodes import HumanParts
 from .nodes_ultra import HumanPartsUltra, LayerStyleHumanPartsUltra
 
 __all__ = ["HumanParts", "HumanPartsUltra", "comfy_entrypoint"]
+WEB_DIRECTORY = "./js"
 
 
 class HumanPartsExtension(ComfyExtension):

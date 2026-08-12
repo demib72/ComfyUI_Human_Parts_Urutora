@@ -29,6 +29,7 @@ from ComfyUI_Human_Parts.nodes import HumanParts
 from ComfyUI_Human_Parts.detector.human_parts import get_mask
 from ComfyUI_Human_Parts.detector import matting
 from ComfyUI_Human_Parts.nodes_ultra import (
+    ULTRA_ANATOMICAL_PARTS,
     ULTRA_CLASSES,
     HumanPartsUltra,
     LayerStyleHumanPartsUltra,
@@ -77,6 +78,7 @@ def _node_arguments(image: torch.Tensor, **overrides) -> dict:
     arguments = {
         "image": image,
         **{name: False for name in ULTRA_CLASSES},
+        **{name: False for name in ULTRA_ANATOMICAL_PARTS},
         "detail_method": "GuidedFilter",
         "detail_erode": 8,
         "detail_dilate": 6,
@@ -215,16 +217,46 @@ class HumanPartsUltraGoldenTests(unittest.TestCase):
         self.assertEqual(set(mask.unique().tolist()), {0.0, 1.0})
         self.assertGoldenMask(mask, self.golden["parts"]["face"])
 
+    def test_anatomical_masks_are_nonempty_and_stay_in_source_classes(self):
+        class_map = np.zeros((100, 80), dtype=np.int64)
+        class_map[5:30, 20:60] = ULTRA_CLASSES["face"]
+        class_map[30:70, 15:65] = ULTRA_CLASSES["torso_skin"]
+        class_map[70:100, 20:38] = ULTRA_CLASSES["left_leg"]
+        class_map[70:100, 42:60] = ULTRA_CLASSES["right_leg"]
+        image = Image.new("RGB", (80, 100), "white")
+        session = GoldenSession(class_map)
+
+        allowed_classes = {
+            "eyes": {ULTRA_CLASSES["face"]},
+            "breasts": {ULTRA_CLASSES["torso_skin"]},
+            "groin": {
+                ULTRA_CLASSES["torso_skin"],
+                ULTRA_CLASSES["left_leg"],
+                ULTRA_CLASSES["right_leg"],
+            },
+        }
+        for part_name in ULTRA_ANATOMICAL_PARTS:
+            with self.subTest(part=part_name):
+                mask = _segment_parts(image, session, {part_name: True})
+                selected = mask.squeeze(0).numpy().astype(bool)
+                self.assertTrue(selected.any())
+                self.assertTrue(
+                    np.isin(class_map[selected], list(allowed_classes[part_name])).all()
+                )
+
 
 class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
     EXPECTED_INPUT_ORDER = [
         "image",
         "face",
+        "eyes",
         "hair",
         "glasses",
         "top_clothes",
         "bottom_clothes",
         "torso_skin",
+        "breasts",
+        "groin",
         "left_arm",
         "right_arm",
         "left_leg",
@@ -254,12 +286,23 @@ class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
 
     def test_widget_order_matches_layerstyle_workflows(self):
         schema = HumanPartsUltra.define_schema()
+        input_ids = [item.id for item in schema.inputs]
+        self.assertEqual(input_ids, self.EXPECTED_INPUT_ORDER)
+        self.assertEqual(input_ids.index("eyes"), input_ids.index("face") + 1)
         self.assertEqual(
-            [item.id for item in schema.inputs], self.EXPECTED_INPUT_ORDER
+            input_ids[input_ids.index("torso_skin") + 1 : input_ids.index("torso_skin") + 3],
+            ["breasts", "groin"],
         )
         device = next(item for item in schema.inputs if item.id == "device")
         self.assertEqual(device.options, ["cuda", "cpu", "auto"])
         self.assertEqual(device.default, "auto")
+        max_megapixels = next(
+            item for item in schema.inputs if item.id == "max_megapixels"
+        )
+        self.assertEqual(max_megapixels.default, 2.0)
+        self.assertEqual(max_megapixels.min, 1.0)
+        groin = next(item for item in schema.inputs if item.id == "groin")
+        self.assertEqual(groin.display_name, "female groin")
 
     def test_v3_schemas_match_captured_v1_compatibility_fixture(self):
         with SCHEMA_FIXTURE_PATH.open(encoding="utf-8") as fixture_file:
@@ -287,15 +330,15 @@ class HumanPartsUltraWorkflowCompatibilityTests(unittest.TestCase):
                     node_class.define_schema().node_id,
                 )
 
-    def test_legacy_positional_widget_values_still_select_right_foot(self):
+    def test_current_positional_widget_values_select_right_foot(self):
         golden = _load_golden_fixture()
         rgb = np.asarray(golden["rgb"], dtype=np.uint8)
         image = torch.from_numpy(rgb.astype(np.float32) / 255.0).unsqueeze(0)
         session = GoldenSession(np.asarray(golden["class_map"], dtype=np.int64))
         # Widget values are stored positionally in legacy workflow JSON.
         saved_widget_values = [
-            False, False, False, False, False, False,
-            False, False, False, False, False, True,
+            False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, True,
             "GuidedFilter", 8, 6, 0.01, 0.99, False, "cpu", 2.0,
         ]
         arguments = dict(zip(self.EXPECTED_INPUT_ORDER[1:], saved_widget_values))
