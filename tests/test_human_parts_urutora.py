@@ -25,6 +25,7 @@ if COMFYUI_ROOT.is_dir():
     sys.path.insert(0, str(COMFYUI_ROOT))
 
 from ComfyUI_Human_Parts_Urutora import comfy_entrypoint
+from ComfyUI_Human_Parts_Urutora.comfy_compat import HAS_COMFY_V3
 from ComfyUI_Human_Parts_Urutora.nodes import HumanPartsUrutoraMaskGenerator
 from ComfyUI_Human_Parts_Urutora.detector.human_parts import get_mask
 from ComfyUI_Human_Parts_Urutora.detector import matting
@@ -424,6 +425,16 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
                     node_class.GET_SCHEMA().node_id,
                     node_class.define_schema().node_id,
                 )
+
+    @unittest.skipUnless(HAS_COMFY_V3, "requires ComfyUI's V3 node API")
+    def test_v3_input_types_use_hashable_combo_markers(self):
+        """V3 validation hashes input types while following connected nodes."""
+        required = HumanPartsUrutora.INPUT_TYPES()["required"]
+
+        self.assertEqual(required["detail_method"][0], "COMBO")
+        self.assertEqual(required["device"][0], "COMBO")
+        for input_type, *_ in required.values():
+            hash(input_type)
 
     def test_current_positional_widget_values_select_right_foot(self):
         golden = _load_golden_fixture()

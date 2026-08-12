@@ -1,6 +1,6 @@
 import torch
 
-from .comfy_compat import io
+from .comfy_compat import HAS_COMFY_V3, io
 
 from .detector.human_parts import get_mask, labels
 from .onnx_lifecycle import execution_providers, load_session
@@ -67,23 +67,25 @@ class HumanPartsUrutoraMaskGenerator(io.ComfyNode):
     CATEGORY = "Human Parts Urutora"
     DESCRIPTION = __doc__ or ""
 
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                **{
-                    segment_id: (
-                        "BOOLEAN",
-                        {
-                            "default": False,
-                            "label_on": "Enabled",
-                            "label_off": "Disabled",
-                            "tooltip": tooltip,
-                        },
-                    )
-                    for segment_id, tooltip in labels.values()
-                    if segment_id
-                },
+    if not HAS_COMFY_V3:
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "image": ("IMAGE",),
+                    **{
+                        segment_id: (
+                            "BOOLEAN",
+                            {
+                                "default": False,
+                                "label_on": "Enabled",
+                                "label_off": "Disabled",
+                                "tooltip": tooltip,
+                            },
+                        )
+                        for segment_id, tooltip in labels.values()
+                        if segment_id
+                    },
+                }
             }
-        }

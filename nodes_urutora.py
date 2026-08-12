@@ -11,7 +11,7 @@ import onnxruntime as ort
 import torch
 from PIL import Image
 
-from .comfy_compat import io
+from .comfy_compat import HAS_COMFY_V3, io
 from .detector.face_parsing import FACE_PARSING_CLASSES, segment_face_parts
 from .detector.matting import (
     VITMATTE_REPOSITORIES,
@@ -241,57 +241,69 @@ class HumanPartsUrutora(io.ComfyNode):
     CATEGORY = "Human Parts Urutora"
     DESCRIPTION = __doc__ or ""
 
-    @classmethod
-    def INPUT_TYPES(cls):
-        methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
-        booleans = {
-            name: (
-                "BOOLEAN",
-                {
-                    "default": False,
-                    **(
-                        {"label": URUTORA_ANATOMICAL_DISPLAY_NAMES[name]}
-                        if name in URUTORA_ANATOMICAL_DISPLAY_NAMES
-                        else {}
-                    ),
-                    **(
-                        {"tooltip": URUTORA_ANATOMICAL_TOOLTIPS[name]}
-                        if name in URUTORA_ANATOMICAL_TOOLTIPS
-                        else {}
-                    ),
-                },
-            )
-            for name in URUTORA_INPUT_ORDER
-        }
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                **booleans,
-                "detail_method": (methods,),
-                "detail_erode": (
-                    "INT",
-                    {"default": 8, "min": 1, "max": 255, "step": 1},
-                ),
-                "detail_dilate": (
-                    "INT",
-                    {"default": 6, "min": 1, "max": 255, "step": 1},
-                ),
-                "black_point": (
-                    "FLOAT",
-                    {"default": 0.01, "min": 0.01, "max": 0.98, "step": 0.01},
-                ),
-                "white_point": (
-                    "FLOAT",
-                    {"default": 0.99, "min": 0.02, "max": 0.99, "step": 0.01},
-                ),
-                "process_detail": ("BOOLEAN", {"default": True}),
-                "device": (["cuda", "cpu", "auto"], {"default": "auto"}),
-                "max_megapixels": (
-                    "FLOAT",
-                    {"default": 2.0, "min": 1.0, "max": 999.0, "step": 0.1},
-                ),
+    if not HAS_COMFY_V3:
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            methods = list(VITMATTE_REPOSITORIES) + ["PyMatting", "GuidedFilter"]
+            booleans = {
+                name: (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        **(
+                            {"label": URUTORA_ANATOMICAL_DISPLAY_NAMES[name]}
+                            if name in URUTORA_ANATOMICAL_DISPLAY_NAMES
+                            else {}
+                        ),
+                        **(
+                            {"tooltip": URUTORA_ANATOMICAL_TOOLTIPS[name]}
+                            if name in URUTORA_ANATOMICAL_TOOLTIPS
+                            else {}
+                        ),
+                    },
+                )
+                for name in URUTORA_INPUT_ORDER
             }
-        }
+            return {
+                "required": {
+                    "image": ("IMAGE",),
+                    **booleans,
+                    "detail_method": (methods,),
+                    "detail_erode": (
+                        "INT",
+                        {"default": 8, "min": 1, "max": 255, "step": 1},
+                    ),
+                    "detail_dilate": (
+                        "INT",
+                        {"default": 6, "min": 1, "max": 255, "step": 1},
+                    ),
+                    "black_point": (
+                        "FLOAT",
+                        {
+                            "default": 0.01,
+                            "min": 0.01,
+                            "max": 0.98,
+                            "step": 0.01,
+                        },
+                    ),
+                    "white_point": (
+                        "FLOAT",
+                        {
+                            "default": 0.99,
+                            "min": 0.02,
+                            "max": 0.99,
+                            "step": 0.01,
+                        },
+                    ),
+                    "process_detail": ("BOOLEAN", {"default": True}),
+                    "device": (["cuda", "cpu", "auto"], {"default": "auto"}),
+                    "max_megapixels": (
+                        "FLOAT",
+                        {"default": 2.0, "min": 1.0, "max": 999.0, "step": 0.1},
+                    ),
+                }
+            }
 
     @classmethod
     def define_schema(cls) -> io.Schema:
