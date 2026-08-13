@@ -120,10 +120,13 @@ In addition to the ONNX human-parts segmentation, Human Parts Urutora provides:
 - Optional VITMatte, PyMatting, or Torch-native Guided Filter edge refinement
   without OpenCV contrib/ximgproc.
 - CPU or CUDA selection for VITMatte.
-- Optional `face skin (preserve features)` and `eyes` masks use a lightweight
+- Optional `face skin (preserve features)`, `eyebrows`, `eyes`, `nose`,
+  `mouth`, `lips`, and `ears` masks use a lightweight
   ResNet-18 BiSeNet face parser, guided by CCIHP face regions so small faces are
   parsed at higher resolution. Face skin leaves eyebrows, eyes, nose, mouth,
-  lips, and ears unmasked while retaining the surrounding eye-socket skin.
+  lips, and ears unmasked while retaining the surrounding eye-socket skin;
+  enable any of their controls to add those features back to the mask. Leaving
+  all feature controls disabled retains the original face-skin-only result.
   Avoid enabling the coarse `face` option at the same time, since it includes
   the features that the face-skin option is designed to preserve.
 

@@ -68,11 +68,42 @@ const PREVIOUS_INLINE_SCHEMA_ORDER = [
     "max_megapixels",
 ];
 
+// Skin-only schema, before all preserved facial features became selectable.
+const SKIN_ONLY_SCHEMA_ORDER = [
+    "face",
+    "face_skin",
+    "eyes",
+    "hair",
+    "glasses",
+    "top_clothes",
+    "bottom_clothes",
+    "torso_skin",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "right_leg",
+    "left_foot",
+    "right_foot",
+    "detail_method",
+    "detail_erode",
+    "detail_dilate",
+    "black_point",
+    "white_point",
+    "process_detail",
+    "device",
+    "max_megapixels",
+];
+
 // Current schema and desired visual order.
 const INLINE_SCHEMA_ORDER = [
     "face",
     "face_skin",
+    "eyebrows",
     "eyes",
+    "nose",
+    "mouth",
+    "lips",
+    "ears",
     "hair",
     "glasses",
     "top_clothes",
@@ -100,10 +131,12 @@ function valuesByName(order, values) {
 
 function normalizeSerializedValues(values) {
     if (!Array.isArray(values)) return values;
-    if (DETAIL_METHODS.has(values[14])) return values;
+    if (DETAIL_METHODS.has(values[19])) return values;
 
     let sourceOrder;
-    if (DETAIL_METHODS.has(values[15])) {
+    if (DETAIL_METHODS.has(values[14])) {
+        sourceOrder = SKIN_ONLY_SCHEMA_ORDER;
+    } else if (DETAIL_METHODS.has(values[15])) {
         sourceOrder = PREVIOUS_INLINE_SCHEMA_ORDER;
     } else if (DETAIL_METHODS.has(values[12])) {
         sourceOrder = values.length >= APPENDED_SCHEMA_ORDER.length

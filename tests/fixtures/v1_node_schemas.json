@@ -21,7 +21,7 @@
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [
-      "image", "face", "face_skin", "eyes", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "image", "face", "face_skin", "eyebrows", "eyes", "nose", "mouth", "lips", "ears", "hair", "glasses", "top_clothes", "bottom_clothes",
       "torso_skin", "left_arm", "right_arm", "left_leg",
       "right_leg", "left_foot", "right_foot", "detail_method",
       "detail_erode", "detail_dilate", "black_point", "white_point",
@@ -29,6 +29,7 @@
     ],
     "input_types": [
       "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "COMBO", "INT", "INT",
       "FLOAT", "FLOAT", "BOOLEAN", "COMBO", "FLOAT"
@@ -40,7 +41,7 @@
     "display_name": "🧍 Human Parts Urutora",
     "category": "Human Parts Urutora",
     "inputs": [
-      "image", "face", "face_skin", "eyes", "hair", "glasses", "top_clothes", "bottom_clothes",
+      "image", "face", "face_skin", "eyebrows", "eyes", "nose", "mouth", "lips", "ears", "hair", "glasses", "top_clothes", "bottom_clothes",
       "torso_skin", "left_arm", "right_arm", "left_leg",
       "right_leg", "left_foot", "right_foot", "detail_method",
       "detail_erode", "detail_dilate", "black_point", "white_point",
@@ -48,6 +49,7 @@
     ],
     "input_types": [
       "IMAGE", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
+      "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN", "BOOLEAN",
       "BOOLEAN", "BOOLEAN", "BOOLEAN", "COMBO", "INT", "INT",
       "FLOAT", "FLOAT", "BOOLEAN", "COMBO", "FLOAT"

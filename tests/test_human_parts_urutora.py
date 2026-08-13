@@ -36,6 +36,7 @@ from ComfyUI_Human_Parts_Urutora.detector.face_parsing import (
 from ComfyUI_Human_Parts_Urutora.nodes_urutora import (
     URUTORA_ANATOMICAL_PARTS,
     URUTORA_CLASSES,
+    URUTORA_FACE_PART_CLASSES,
     HumanPartsUrutora,
     LayerStyleHumanPartsUrutora,
     _execution_providers,
@@ -332,6 +333,64 @@ class HumanPartsUrutoraGoldenTests(unittest.TestCase):
             y0, x0 = (column // 8) * 10, (column % 8) * 10
             self.assertEqual(mask[y0 : y0 + 10, x0 : x0 + 10].sum().item(), 0)
 
+    def test_each_preserved_face_part_can_be_added_to_face_skin(self):
+        coarse_map = np.full((16, 16), URUTORA_CLASSES["face"], dtype=np.int64)
+        image = Image.new("RGB", (160, 160), "white")
+
+        for part_name, class_names in URUTORA_FACE_PART_CLASSES.items():
+            if part_name == "face_skin":
+                continue
+            with self.subTest(part=part_name):
+                face_map = np.full(
+                    (16, 16), FACE_PARSING_CLASSES["skin"], dtype=np.int64
+                )
+                for offset, class_name in enumerate(class_names):
+                    face_map[6:10, 4 + offset * 5 : 7 + offset * 5] = (
+                        FACE_PARSING_CLASSES[class_name]
+                    )
+                skin_only = _segment_parts(
+                    image,
+                    GoldenSession(coarse_map),
+                    {"face_skin": True},
+                    FaceParsingSession(face_map),
+                )
+                with_feature = _segment_parts(
+                    image,
+                    GoldenSession(coarse_map),
+                    {"face_skin": True, part_name: True},
+                    FaceParsingSession(face_map),
+                )
+
+                self.assertGreater(with_feature.sum().item(), skin_only.sum().item())
+
+    def test_disabled_face_feature_controls_preserve_skin_only_result(self):
+        coarse_map = np.full((8, 8), URUTORA_CLASSES["face"], dtype=np.int64)
+        face_map = np.full((8, 8), FACE_PARSING_CLASSES["skin"], dtype=np.int64)
+        face_map[2:4, 2:6] = FACE_PARSING_CLASSES["nose"]
+        image = Image.new("RGB", (80, 80), "white")
+
+        original = _segment_parts(
+            image,
+            GoldenSession(coarse_map),
+            {"face_skin": True},
+            FaceParsingSession(face_map),
+        )
+        explicit_disabled = _segment_parts(
+            image,
+            GoldenSession(coarse_map),
+            {
+                "face_skin": True,
+                **{
+                    part_name: False
+                    for part_name in URUTORA_FACE_PART_CLASSES
+                    if part_name != "face_skin"
+                },
+            },
+            FaceParsingSession(face_map),
+        )
+
+        self.assertTrue(torch.equal(original, explicit_disabled))
+
 
 class FaceParsingTests(unittest.TestCase):
     def test_face_skin_is_clipped_to_coarse_face_and_removes_small_islands(self):
@@ -406,7 +465,12 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         "image",
         "face",
         "face_skin",
+        "eyebrows",
         "eyes",
+        "nose",
+        "mouth",
+        "lips",
+        "ears",
         "hair",
         "glasses",
         "top_clothes",
@@ -501,7 +565,8 @@ class HumanPartsUrutoraWorkflowCompatibilityTests(unittest.TestCase):
         # Widget values are stored positionally in legacy workflow JSON.
         saved_widget_values = [
             False, False, False, False, False, False, False,
-            False, False, False, False, False, False, True,
+            False, False, False, False, False, False, False,
+            False, False, False, False, True,
             "GuidedFilter", 8, 6, 0.01, 0.99, False, "cpu", 2.0,
         ]
         arguments = dict(zip(self.EXPECTED_INPUT_ORDER[1:], saved_widget_values))

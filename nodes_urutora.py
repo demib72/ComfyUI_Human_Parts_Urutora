@@ -52,7 +52,12 @@ URUTORA_CLASSES = {
 URUTORA_INPUT_ORDER = (
     "face",
     "face_skin",
+    "eyebrows",
     "eyes",
+    "nose",
+    "mouth",
+    "lips",
+    "ears",
     "hair",
     "glasses",
     "top_clothes",
@@ -69,14 +74,29 @@ URUTORA_INPUT_ORDER = (
 # These regions are not native classes in the 22-class CCIHP model. Face skin
 # uses the finer BiSeNet parser; eyes retain a geometric fallback for installs
 # that do not yet have the face-parsing model.
-URUTORA_ANATOMICAL_PARTS = ("face_skin", "eyes")
+URUTORA_FACE_PART_CLASSES = {
+    "face_skin": ("skin",),
+    "eyebrows": ("left_eyebrow", "right_eyebrow"),
+    "eyes": ("left_eye", "right_eye"),
+    "nose": ("nose",),
+    "mouth": ("mouth",),
+    "lips": ("upper_lip", "lower_lip"),
+    "ears": ("left_ear", "right_ear"),
+}
+URUTORA_ANATOMICAL_PARTS = tuple(URUTORA_FACE_PART_CLASSES)
 URUTORA_ANATOMICAL_TOOLTIPS = {
     "face_skin": (
         "Mask facial skin while preserving eyebrows, eyes, nose, mouth, lips, "
-        "and ears. Includes the skin around the eye sockets. Do not enable "
-        "the whole-face option at the same time."
+        "and ears unless their separate controls are enabled. Includes the "
+        "skin around the eye sockets. Do not enable the whole-face option at "
+        "the same time."
     ),
+    "eyebrows": "Mask both eyebrows using the face parser.",
     "eyes": "Estimate both eye regions within the detected face.",
+    "nose": "Mask the nose using the face parser.",
+    "mouth": "Mask the inner mouth region using the face parser.",
+    "lips": "Mask both upper and lower lips using the face parser.",
+    "ears": "Mask both ears using the face parser.",
 }
 URUTORA_ANATOMICAL_DISPLAY_NAMES = {
     "face_skin": "face skin (preserve features)"
@@ -164,16 +184,12 @@ def _segment_parts(
         mask = np.zeros_like(class_map, dtype=np.uint8)
 
     parsed_face_mask: np.ndarray | None = None
-    parsed_classes = []
-    if selections.get("face_skin", False):
-        parsed_classes.append(FACE_PARSING_CLASSES["skin"])
-    if selections.get("eyes", False):
-        parsed_classes.extend(
-            (
-                FACE_PARSING_CLASSES["left_eye"],
-                FACE_PARSING_CLASSES["right_eye"],
-            )
-        )
+    parsed_classes = [
+        FACE_PARSING_CLASSES[class_name]
+        for part_name, class_names in URUTORA_FACE_PART_CLASSES.items()
+        if selections.get(part_name, False)
+        for class_name in class_names
+    ]
     if parsed_classes and face_model is not None:
         parsed_face_mask = segment_face_parts(
             image,
@@ -357,6 +373,11 @@ class HumanPartsUrutora(io.ComfyNode):
         max_megapixels: float,
         eyes: bool = False,
         face_skin: bool = False,
+        eyebrows: bool = False,
+        nose: bool = False,
+        mouth: bool = False,
+        lips: bool = False,
+        ears: bool = False,
         # Retained as hidden keyword arguments so API callers using an older
         # workflow fail safely after the corresponding widgets are removed.
         breasts: bool = False,
@@ -379,18 +400,26 @@ class HumanPartsUrutora(io.ComfyNode):
             "right_foot": right_foot,
             "eyes": eyes,
             "face_skin": face_skin,
+            "eyebrows": eyebrows,
+            "nose": nose,
+            "mouth": mouth,
+            "lips": lips,
+            "ears": ears,
         }
 
         face_model = None
-        if eyes or face_skin:
+        selected_face_parts = [
+            name for name in URUTORA_ANATOMICAL_PARTS if selections[name]
+        ]
+        if selected_face_parts:
             try:
                 face_model = _load_session(face_model_path, providers)
             except FileNotFoundError:
                 print(
                     "[HumanPartsUrutora] Face-parsing model is not installed; "
                     "Run install.py to enable native facial segmentation. "
-                    "Eyes will use the legacy estimate; face skin will remain "
-                    "empty so identity features are not masked accidentally."
+                    "Eyes will use the legacy estimate; other fine facial "
+                    "parts will remain empty rather than being guessed."
                 )
 
         output_images = []
